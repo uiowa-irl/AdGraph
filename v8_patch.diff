@@ -75,63 +75,28 @@ index 89bcb2e..e286e57 100644
  void Isolate::SetAbortOnUncaughtExceptionCallback(
      AbortOnUncaughtExceptionCallback callback) {
 diff --git a/src/compiler.cc b/src/compiler.cc
-index ae6bc9c..99cb94a 100644
+index ae6bc9c..c15537d 100644
 --- a/src/compiler.cc
 +++ b/src/compiler.cc
-@@ -2,6 +2,8 @@
- // Use of this source code is governed by a BSD-style license that can be
- // found in the LICENSE file.
- 
-+#include <iostream>
-+
- #include "src/compiler.h"
- 
- #include <algorithm>
-@@ -1241,6 +1243,10 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
-     int eval_scope_position, int eval_position, int line_offset,
-     int column_offset, Handle<Object> script_name,
-     ScriptOriginOptions options) {
-+  
-+  std::cout  << "\nGetFunctionFromEval\n";
-+  std::cout << source->ToCString() <<std::endl;
-+
-   Isolate* isolate = source->GetIsolate();
-   int source_length = source->length();
-   isolate->counters()->total_eval_size()->Increment(source_length);
-@@ -1278,7 +1284,19 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
+@@ -1278,7 +1278,13 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
      script = Handle<Script>(Script::cast(shared_info->script()), isolate);
      allow_eval_cache = true;
    } else {
 +
-+    std::cout << "Myid: " << Handle<Script>(Script::cast(outer_info->script()), isolate)->id()  << std::endl;
-+
      script = isolate->factory()->NewScript(source);
-+     
-+    std::cout << "\n Script id: " << script->id() << std::endl;
 +
 +    if (isolate->GetEvalAndFunctionScriptCreation() != nullptr) {
 +      isolate->GetEvalAndFunctionScriptCreation()(isolate->GetAdGraphId(), source->ToCString(), script->id() );
 +    }
 +
-+
-+
      if (isolate->NeedsSourcePositionsForProfiling()) {
        Script::InitLineEnds(script);
      }
 diff --git a/src/isolate.cc b/src/isolate.cc
-index 5c27f81..53751a9 100644
+index 5c27f81..d901f64 100644
 --- a/src/isolate.cc
 +++ b/src/isolate.cc
-@@ -4,8 +4,6 @@
- 
- #include "src/isolate.h"
- 
--#include <stdlib.h>
--
- #include <atomic>
- #include <fstream>  // NOLINT(readability/streams)
- #include <sstream>
-@@ -2218,6 +2216,54 @@ void Isolate::SetCaptureStackTraceForUncaughtExceptions(
+@@ -2218,6 +2218,54 @@ void Isolate::SetCaptureStackTraceForUncaughtExceptions(
    stack_trace_for_uncaught_exceptions_options_ = options;
  }
  
@@ -186,7 +151,7 @@ index 5c27f81..53751a9 100644
  
  void Isolate::SetAbortOnUncaughtExceptionCallback(
      v8::Isolate::AbortOnUncaughtExceptionCallback callback) {
-@@ -2541,7 +2587,12 @@ Isolate::Isolate()
+@@ -2541,7 +2589,12 @@ Isolate::Isolate()
        basic_block_profiler_(nullptr),
        cancelable_task_manager_(new CancelableTaskManager()),
        abort_on_uncaught_exception_callback_(nullptr),
