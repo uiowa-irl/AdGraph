@@ -5,7 +5,7 @@ In this work we present AdGraph, a novel graph-based machine learning approach f
 
 We evaluate AdGraph on the Alexa top-10K websites, and find that it is highly accurate, able to replicate the labels of human-generated filter lists with 95.33% accuracy, and can even identify many mistakes in filter lists. We implement AdGraph as a modification to Chromium. AdGraph adds only minor overhead to page loading and execution, and is actually faster than stock Chromium on 42% of websites and AdBlock Plus on 78% of websites. Overall, we conclude that AdGraph is both accurate enough and performant enough for online use, breaking comparable or fewer websites than popular filter list based approaches.
 
-**More details in full paper**
+**Please check our full paper for more details**
 
 ## Repository Structure
 
@@ -24,3 +24,14 @@ We evaluate AdGraph on the Alexa top-10K websites, and find that it is highly ac
 │   └── example_selenium_script.py
 ```
 We provide both the binaries (**download them from GitHub's [`release` tab](https://github.com/uiowa-irl/AdGraph/releases)**) and source code (as Chromium patches) to allow for reproducibility and future extensions from research commiunity.
+
+## Run Prebuilt Binary
+Binaries are located in the **`release`** folder. Please follow the steps below to run them.
+
+1. Unzip the folder `AdGraph-Linux.tar.gz` and simple run `chrome` with `--nosandbox` flag from command line 
+```.\chrome --nosandbox```
+2. To extract fine grained rendering details create a `CDATASection` element with text `NOTVERYUNIQUESTRING`
+```document.createCDATASection('NOTVERYUNIQUESTRING');```
+3. To extract/crawl a large number of webistes, a sample script is added in the `sacripts` folder
+
+## Build From Scratch
