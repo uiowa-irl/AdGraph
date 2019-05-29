@@ -4,3 +4,23 @@
 In this work we present AdGraph, a novel graph-based machine learning approach for detecting advertising and tracking resources on the web. AdGraph differs from existing approaches by building a graph representation of the HTML structure, network requests, and JavaScript behavior of a webpage, and using this unique representation to train a classifier for identifying advertising and tracking resources. Because AdGraph considers many aspects of the context a network request takes place in, it is less susceptible to the single-factor evasion techniques that flummox existing approaches.
 
 We evaluate AdGraph on the Alexa top-10K websites, and find that it is highly accurate, able to replicate the labels of human-generated filter lists with 95.33% accuracy, and can even identify many mistakes in filter lists. We implement AdGraph as a modification to Chromium. AdGraph adds only minor overhead to page loading and execution, and is actually faster than stock Chromium on 42% of websites and AdBlock Plus on 78% of websites. Overall, we conclude that AdGraph is both accurate enough and performant enough for online use, breaking comparable or fewer websites than popular filter list based approaches.
+
+**More details in full paper**
+
+## Repository Structure
+
+1. Binaries (from [`release` tab](https://github.com/uiowa-irl/AdGraph/releases), currently versioned `AdGraph-v1.0`)
+```
+── AdGraph-Linux.tar.gz (modified Chromium binary for Linux)
+```
+2. Source Code
+```
+├── LICENSE
+├── README.md
+├── patches
+│   ├── patch.diff
+│   └── v8_patch.diff
+├── scripts
+│   └── example_selenium_script.py
+```
+We provide both the binaries (**download them from GitHub's [`release` tab](https://github.com/uiowa-irl/AdGraph/releases)**) and source code (as Chromium patches) to allow for reproducibility and future extensions from research commiunity.
