@@ -1,0 +1,261 @@
+diff --git a/include/v8.h b/include/v8.h
+index a099323..f792d4a 100644
+--- a/include/v8.h
++++ b/include/v8.h
+@@ -7285,6 +7285,21 @@ class V8_EXPORT Isolate {
+   typedef void (*UseCounterCallback)(Isolate* isolate,
+                                      UseCounterFeature feature);
+ 
++  // @adgraph
++  typedef void (*ScriptExecutionStartCallback)(uint64_t id, int script_id);
++  void SetFunctionStartCallback(ScriptExecutionStartCallback callback);
++  typedef void (*ScriptExecutionCompleteCallback)(uint64_t id);
++  void SetFunctionEndCallback(ScriptExecutionCompleteCallback callback);
++
++  typedef void (*EvalAndFunctionScriptCreationRegistration)(uint64_t id, std::unique_ptr<char []>, uint64_t script_id);
++  void SetEvalAndFunctionScriptCreation(EvalAndFunctionScriptCreationRegistration RegisterEvalFunction);
++
++  void SetAdGraphId(uint64_t id);
++  uint64_t GetAdGraphId();
++  void SetExecutingScriptId(int script_id);
++  uint64_t GetExecutingScriptId();
++
++
+   /**
+    * Allocates a new isolate but does not initialize it. Does not change the
+    * currently entered isolate.
+diff --git a/src/api.cc b/src/api.cc
+index 89bcb2e..e286e57 100644
+--- a/src/api.cc
++++ b/src/api.cc
+@@ -8309,6 +8309,45 @@ void Isolate::Exit() {
+   isolate->Exit();
+ }
+ 
++// @adgraph
++void Isolate::SetFunctionStartCallback(ScriptExecutionStartCallback callback) {
++  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
++  isolate->SetFunctionStartCallback(callback);
++}
++
++// @adgraph
++void Isolate::SetFunctionEndCallback(ScriptExecutionCompleteCallback callback) {
++  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
++  isolate->SetFunctionEndCallback(callback);
++}
++
++// @adgraph
++void Isolate::SetEvalAndFunctionScriptCreation(EvalAndFunctionScriptCreationRegistration RegisterEvalFunction){
++  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
++  isolate->SetEvalAndFunctionScriptCreation(RegisterEvalFunction);
++}
++
++// @adgraph
++void Isolate::SetAdGraphId(uint64_t id) {
++  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
++  isolate->SetAdGraphId(id);
++}
++
++// @adgraph
++uint64_t Isolate::GetAdGraphId() {
++  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
++  return isolate->GetAdGraphId();
++}
++
++void Isolate::SetExecutingScriptId(int script_id) {
++  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
++  isolate->SetExecutingScriptId(script_id);
++}
++
++uint64_t Isolate::GetExecutingScriptId() {
++  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
++  return isolate->GetExecutingScriptId();
++}
+ 
+ void Isolate::SetAbortOnUncaughtExceptionCallback(
+     AbortOnUncaughtExceptionCallback callback) {
+diff --git a/src/compiler.cc b/src/compiler.cc
+index ae6bc9c..c15537d 100644
+--- a/src/compiler.cc
++++ b/src/compiler.cc
+@@ -1278,7 +1278,13 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
+     script = Handle<Script>(Script::cast(shared_info->script()), isolate);
+     allow_eval_cache = true;
+   } else {
++
+     script = isolate->factory()->NewScript(source);
++
++    if (isolate->GetEvalAndFunctionScriptCreation() != nullptr) {
++      isolate->GetEvalAndFunctionScriptCreation()(isolate->GetAdGraphId(), source->ToCString(), script->id() );
++    }
++
+     if (isolate->NeedsSourcePositionsForProfiling()) {
+       Script::InitLineEnds(script);
+     }
+diff --git a/src/isolate.cc b/src/isolate.cc
+index 5c27f81..d901f64 100644
+--- a/src/isolate.cc
++++ b/src/isolate.cc
+@@ -2218,6 +2218,54 @@ void Isolate::SetCaptureStackTraceForUncaughtExceptions(
+   stack_trace_for_uncaught_exceptions_options_ = options;
+ }
+ 
++// @adgraph
++void Isolate::SetFunctionStartCallback(v8::Isolate::ScriptExecutionStartCallback callback) {
++  function_start_callback_ = callback;
++}
++
++// @adgraph
++v8::Isolate::ScriptExecutionStartCallback Isolate::GetFunctionStartCallback() {
++  return function_start_callback_;
++}
++
++// @adgraph
++void Isolate::SetFunctionEndCallback(v8::Isolate::ScriptExecutionCompleteCallback callback) {
++  function_end_callback_ = callback;
++}
++
++// @adgraph
++v8::Isolate::ScriptExecutionCompleteCallback Isolate::GetFunctionEndCallback() {
++  return function_end_callback_;
++}
++
++// @adgraph
++void Isolate::SetEvalAndFunctionScriptCreation(v8::Isolate::EvalAndFunctionScriptCreationRegistration RegisterEvalFunction) {
++  eval_function_registration_ = RegisterEvalFunction;
++}
++
++// @adgraph
++v8::Isolate::EvalAndFunctionScriptCreationRegistration Isolate::GetEvalAndFunctionScriptCreation() {
++  return eval_function_registration_;
++}
++
++// @adgraph
++void Isolate::SetAdGraphId(uint64_t id) {
++  adgraph_id_ = id;
++}
++
++// @adgraph
++uint64_t Isolate::GetAdGraphId() const {
++  return adgraph_id_;
++}
++
++// @adgraph
++void Isolate::SetExecutingScriptId(int script_id) {
++  executing_script_id_ = script_id;
++}
++
++int Isolate::GetExecutingScriptId() const {
++  return executing_script_id_;
++}
+ 
+ void Isolate::SetAbortOnUncaughtExceptionCallback(
+     v8::Isolate::AbortOnUncaughtExceptionCallback callback) {
+@@ -2541,7 +2589,12 @@ Isolate::Isolate()
+       basic_block_profiler_(nullptr),
+       cancelable_task_manager_(new CancelableTaskManager()),
+       abort_on_uncaught_exception_callback_(nullptr),
+-      total_regexp_code_generated_(0) {
++      total_regexp_code_generated_(0),
++      // @adgraph
++      function_start_callback_(nullptr),
++      function_end_callback_(nullptr),
++      eval_function_registration_(nullptr),
++      adgraph_id_(0) {
+   id_ = base::Relaxed_AtomicIncrement(&isolate_counter_, 1);
+   TRACE_ISOLATE(constructor);
+ 
+diff --git a/src/isolate.h b/src/isolate.h
+index 929403e..5c385c8 100644
+--- a/src/isolate.h
++++ b/src/isolate.h
+@@ -710,6 +710,20 @@ class Isolate : private HiddenFactory {
+       int frame_limit,
+       StackTrace::StackTraceOptions options);
+ 
++  // @adgraph
++  void SetFunctionStartCallback(v8::Isolate::ScriptExecutionStartCallback callback);
++  v8::Isolate::ScriptExecutionStartCallback GetFunctionStartCallback();
++  void SetFunctionEndCallback(v8::Isolate::ScriptExecutionCompleteCallback callback);
++  v8::Isolate::ScriptExecutionCompleteCallback GetFunctionEndCallback();
++
++  void SetEvalAndFunctionScriptCreation(v8::Isolate::EvalAndFunctionScriptCreationRegistration RegisterEvalFunction);
++  v8::Isolate::EvalAndFunctionScriptCreationRegistration GetEvalAndFunctionScriptCreation();
++
++  void SetAdGraphId(uint64_t id);
++  uint64_t GetAdGraphId() const;
++  void SetExecutingScriptId(int script_id);
++  int GetExecutingScriptId() const;
++
+   void SetAbortOnUncaughtExceptionCallback(
+       v8::Isolate::AbortOnUncaughtExceptionCallback callback);
+ 
+@@ -1665,6 +1679,15 @@ class Isolate : private HiddenFactory {
+ 
+   size_t total_regexp_code_generated_;
+ 
++  // @adgraph
++  v8::Isolate::ScriptExecutionStartCallback function_start_callback_;
++  v8::Isolate::ScriptExecutionCompleteCallback function_end_callback_;
++  
++  v8::Isolate::EvalAndFunctionScriptCreationRegistration eval_function_registration_;
++
++  uint64_t adgraph_id_ = 0;
++  int executing_script_id_ = 0;
++
+   size_t elements_deletion_counter_ = 0;
+ 
+   std::unique_ptr<wasm::WasmEngine> wasm_engine_;
+diff --git a/src/vm-state-inl.h b/src/vm-state-inl.h
+index 7388238..f08022a 100644
+--- a/src/vm-state-inl.h
++++ b/src/vm-state-inl.h
+@@ -10,6 +10,8 @@
+ #include "src/simulator.h"
+ #include "src/tracing/trace-event.h"
+ 
++#include "src/frames-inl.h"
++
+ namespace v8 {
+ namespace internal {
+ 
+@@ -66,6 +68,20 @@ ExternalCallbackScope::ExternalCallbackScope(Isolate* isolate, Address callback)
+   scope_address_ = Simulator::current(isolate)->get_sp();
+ #endif
+   isolate_->set_external_callback_scope(this);
++
++  StackTraceFrameIterator it(isolate_);
++  if (!it.done() && it.is_javascript()) {
++    JavaScriptFrame* frame = it.javascript_frame();
++    Handle<JSFunction> function(frame->function(), isolate);
++    Object* script = function->shared()->script();
++    if (script->IsScript()) {
++      int script_id = Script::cast(script)->id();
++      if (isolate_->GetFunctionStartCallback() != nullptr) {
++        isolate_->GetFunctionStartCallback()(isolate_->GetAdGraphId(), script_id);
++      }
++    }
++  }
++
+   TRACE_EVENT_BEGIN0(TRACE_DISABLED_BY_DEFAULT("v8.runtime"),
+                      "V8.ExternalCallback");
+ }
+@@ -74,6 +90,18 @@ ExternalCallbackScope::~ExternalCallbackScope() {
+   isolate_->set_external_callback_scope(previous_scope_);
+   TRACE_EVENT_END0(TRACE_DISABLED_BY_DEFAULT("v8.runtime"),
+                    "V8.ExternalCallback");
++  // @adgraph
++  StackTraceFrameIterator it(isolate_);
++  if (!it.done() && it.is_javascript()) {
++    JavaScriptFrame* frame = it.javascript_frame();
++    Handle<JSFunction> function(frame->function(), isolate_);
++    Object* script = function->shared()->script();
++    if (script->IsScript()) {
++      if (isolate_->GetFunctionEndCallback() != nullptr) {
++        isolate_->GetFunctionEndCallback()(isolate_->GetAdGraphId());
++      }
++    }
++  }
+ }
+ 
+ Address ExternalCallbackScope::scope_address() {

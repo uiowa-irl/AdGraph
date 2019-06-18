@@ -1,0 +1,3867 @@
+diff --git a/base/BUILD.gn b/base/BUILD.gn
+index 943412f..abbebdb 100644
+--- a/base/BUILD.gn
++++ b/base/BUILD.gn
+@@ -83,7 +83,8 @@ config("base_flags") {
+       # requirement.
+       # https://groups.google.com/a/chromium.org/d/topic/chromium-dev/B9Q5KTD7iCo/discussion
+       "-Wglobal-constructors",
+-      "-Wexit-time-destructors",
++      # @adgraph
++      # "-Wexit-time-destructors",
+     ]
+   }
+ }
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+index 83337d5..e48266b 100644
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -1642,7 +1642,8 @@ config("no_exceptions") {
+ config("wexit_time_destructors") {
+   # TODO: Enable on Windows too, http://crbug.com/404525
+   if (is_clang && !is_win) {
+-    cflags = [ "-Wexit-time-destructors" ]
++    # @adgraph
++    # cflags = [ "-Wexit-time-destructors" ]
+   }
+ }
+ 
+diff --git a/extensions/renderer/script_context.cc b/extensions/renderer/script_context.cc
+index ff759b0..a7a0a11 100644
+--- a/extensions/renderer/script_context.cc
++++ b/extensions/renderer/script_context.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++// @adgraph
++#include <string>
++#include "third_party/blink/renderer/core/dom/document.h"
++
+ #include "extensions/renderer/script_context.h"
+ 
+ #include "base/command_line.h"
+@@ -476,12 +480,19 @@ v8::Local<v8::Value> ScriptContext::RunScript(
+     return v8::Undefined(isolate());
+   }
+ 
++  // @adgraph
++  web_frame_->GetDocument()
++      .DocumentForAdGraph()
++      ->RegisterExtensionScripts(
++        *v8::String::Utf8Value(isolate(), code),
++        script->GetUnboundScript()->GetId()        
++      );
+   v8::Local<v8::Value> result;
+   if (!script->Run(v8_context()).ToLocal(&result)) {
+     exception_handler.Run(try_catch);
+     return v8::Undefined(isolate());
+   }
+-
++  
+   return handle_scope.Escape(result);
+ }
+ 
+diff --git a/third_party/blink/public/web/web_document.h b/third_party/blink/public/web/web_document.h
+index 73ddadc..a0ac54f 100644
+--- a/third_party/blink/public/web/web_document.h
++++ b/third_party/blink/public/web/web_document.h
+@@ -71,6 +71,8 @@ class WebDocument : public WebNode {
+   }
+   void Assign(const WebDocument& e) { WebNode::Assign(e); }
+ 
++  BLINK_EXPORT Document* DocumentForAdGraph();
++
+   BLINK_EXPORT WebURL Url() const;
+   // Note: Security checks should use the getSecurityOrigin(), not url().
+   BLINK_EXPORT WebSecurityOrigin GetSecurityOrigin() const;
+diff --git a/third_party/blink/renderer/adgraph/BUILD.gn b/third_party/blink/renderer/adgraph/BUILD.gn
+new file mode 100644
+index 0000000..39ecd70
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/BUILD.gn
+@@ -0,0 +1,72 @@
++import("//third_party/blink/renderer/core/core.gni")
++
++blink_core_sources("adgraph") {
++  deps = [
++    "//v8",
++  ]
++
++  sources = [
++    "context_map.h",
++    "context_map.cc",
++    "script.h",
++    "script.cc",
++    "network_resource_request.h",
++    "network_resource_request.cc",
++    "network_video_request.h",
++    "network_video_request.cc",
++    "node.h",
++    "node.cc",
++    "attr_style_addition.h",
++    "attr_style_addition.cc",
++    "attr.h",
++    "attr.cc",
++    "script_execution.h",
++    "script_execution.cc",
++    "node_attribute.h",
++    "node_attribute.cc",
++    "attr_removal.h",
++    "attr_removal.cc",
++    "node_creation.h",
++    "node_creation.cc",
++    "network.h",
++    "network.cc",
++    "script_compilation.h",
++    "script_compilation.cc",
++    "script_eval.h",
++    "script_eval.cc",
++    "script_extension.h",
++    "script_extension.cc",
++    "attr_style_removal.h",
++    "attr_style_removal.cc",
++    "attr_addition.h",
++    "attr_addition.cc",
++    "network_iframe_request.h",
++    "network_iframe_request.cc",
++    "network_link_request.h",
++    "network_link_request.cc",
++    "attr_style_text_addition.h",
++    "attr_style_text_addition.cc",
++    "network_xmlhttp_request.h",
++    "network_xmlhttp_request.cc",
++    "node_attach_later.h",
++    "node_attach_later.cc",
++    "node_removal.h",
++    "node_removal.cc",
++    "attr_modification.h",
++    "attr_modification.cc",
++    "event.h",
++    "event.cc",
++    "node_insertion.h",
++    "node_insertion.cc",
++    "network_script_request.h",
++    "network_script_request.cc",
++    "network_image_request.h",
++    "network_image_request.cc",
++    "node_materialized.h",
++    "node_materialized.cc",
++    "timeline.h",
++    "timeline.cc",
++    "types.h",
++    "logging.h"
++  ]
++}
+diff --git a/third_party/blink/renderer/adgraph/TYPES.md b/third_party/blink/renderer/adgraph/TYPES.md
+new file mode 100644
+index 0000000..09247f3
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/TYPES.md
+@@ -0,0 +1,8 @@
++Event
++    Attribute
++
++    Node
++
++    Network
++
++    Script
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/adgraph/attr.cc b/third_party/blink/renderer/adgraph/attr.cc
+new file mode 100644
+index 0000000..84a303f
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr.cc
+@@ -0,0 +1,35 @@
++// AdGraph Instrumentation
++
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/adgraph/attr.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++Attr::Attr(DOMNodeId node_id,
++  NodeAttribute node_attribute,
++  ActorId actor_id) :
++    node_id_(node_id),
++    node_attribute_(node_attribute),
++    actor_id_(actor_id) {};
++
++NodeAttribute Attr::GetNodeAttribute() const {
++  return node_attribute_;
++}
++
++DOMNodeId Attr::GetDOMNodeId() const {
++  return node_id_;
++}
++
++std::unique_ptr<JSONObject> Attr::ToJSON() const {
++  auto json = Event::ToJSON();
++  json->SetString("actor_id", WTF::String::Number(actor_id_));
++  json->SetString("node_id", WTF::String::Number(node_id_));
++  json->SetObject("node_attribute", node_attribute_.ToJSON());
++  return json;
++}
++
++}
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/adgraph/attr.h b/third_party/blink/renderer/adgraph/attr.h
+new file mode 100644
+index 0000000..9fed915
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr.h
+@@ -0,0 +1,36 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_H
++
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/event.h"
++#include "third_party/blink/renderer/adgraph/node_attribute.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class Attr : public Event {
++  public:
++    Attr(DOMNodeId node_id,
++      NodeAttribute node_attribute,
++      ActorId actor_id);
++
++    DOMNodeId GetDOMNodeId() const;
++    ActorId GetActorId() const;
++    bool GetScriptActor() const;
++    NodeAttribute GetNodeAttribute() const;
++    std::unique_ptr<JSONObject> ToJSON() const override;
++
++  protected:
++    DOMNodeId node_id_;
++    NodeAttribute node_attribute_;
++    ActorId actor_id_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_TEXT_ADDITION_H
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/adgraph/attr_addition.cc b/third_party/blink/renderer/adgraph/attr_addition.cc
+new file mode 100644
+index 0000000..15713e0
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_addition.cc
+@@ -0,0 +1,23 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/attr_addition.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++AttrAddition::AttrAddition(DOMNodeId node_id,
++  NodeAttribute node_attribute,
++  ActorId actor_id) :
++   Attr(node_id,
++    node_attribute,
++    actor_id) {};
++
++std::unique_ptr<JSONObject> AttrAddition::ToJSON() const {
++  std::unique_ptr<JSONObject> json = Attr::ToJSON();
++  json->SetString("event_type", "AttrAddition");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/attr_addition.h b/third_party/blink/renderer/adgraph/attr_addition.h
+new file mode 100644
+index 0000000..08dee292
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_addition.h
+@@ -0,0 +1,24 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_ADDITION_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_ADDITION_H
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/attr.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class AttrAddition : public Attr {
++  public:
++    AttrAddition(DOMNodeId node_id,
++      NodeAttribute node_attribute,
++      ActorId actor_id);
++
++    std::unique_ptr<JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_ADDITION_H
+diff --git a/third_party/blink/renderer/adgraph/attr_modification.cc b/third_party/blink/renderer/adgraph/attr_modification.cc
+new file mode 100644
+index 0000000..f9e209b
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_modification.cc
+@@ -0,0 +1,32 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/adgraph/attr_modification.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++AttrModification::AttrModification(
++  DOMNodeId node_id,
++  AdGraph::NodeAttribute node_attribute,
++  std::string old_attr_value,
++  DOMNodeId actor_id)
++  : Attr(
++      node_id,
++      node_attribute,
++      actor_id),
++    old_attr_value_(old_attr_value) {}
++
++std::string AttrModification::GetOldAttrValue() const {
++  return old_attr_value_;
++}
++
++std::unique_ptr<JSONObject> AttrModification::ToJSON() const {
++  auto json = Attr::ToJSON();
++  json->SetString("event_type", "AttrModification");
++  json->SetString("old_attr_value", old_attr_value_.c_str());
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/attr_modification.h b/third_party/blink/renderer/adgraph/attr_modification.h
+new file mode 100644
+index 0000000..9c78ba3
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_modification.h
+@@ -0,0 +1,31 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_MODIFICATION_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_MODIFICATION_H
++#include <string>
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/attr.h"
++#include "third_party/blink/renderer/adgraph/node_attribute.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class AttrModification : public Attr {
++  public:
++    AttrModification(DOMNodeId node_id,
++      NodeAttribute node_attribute,
++      std::string old_attr_value,
++      ActorId actor_id);
++
++      std::string GetOldAttrValue() const;
++      std::unique_ptr<JSONObject> ToJSON() const override;
++
++  protected:
++    std::string old_attr_value_; // Conatins the old vlaue for attribute
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_MODIFICATION_H
+diff --git a/third_party/blink/renderer/adgraph/attr_removal.cc b/third_party/blink/renderer/adgraph/attr_removal.cc
+new file mode 100644
+index 0000000..409d17f
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_removal.cc
+@@ -0,0 +1,22 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/attr_removal.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++AttrRemoval::AttrRemoval(DOMNodeId node_id,
++  NodeAttribute node_attribute,
++  ActorId actor_id) :
++    Attr(node_id,
++      node_attribute,
++      actor_id) {};
++
++std::unique_ptr<JSONObject> AttrRemoval::ToJSON() const {
++  auto json = Attr::ToJSON();
++  json->SetString("event_type", "AttrRemoval");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/attr_removal.h b/third_party/blink/renderer/adgraph/attr_removal.h
+new file mode 100644
+index 0000000..0781b84
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_removal.h
+@@ -0,0 +1,25 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_REMOVAL_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_REMOVAL_H
++
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/attr.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class AttrRemoval : public Attr {
++  public:
++    AttrRemoval(DOMNodeId node_id,
++      NodeAttribute node_attribute,
++      ActorId actor_id);
++
++    std::unique_ptr<JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_REMOVAL_H
+diff --git a/third_party/blink/renderer/adgraph/attr_style_addition.cc b/third_party/blink/renderer/adgraph/attr_style_addition.cc
+new file mode 100644
+index 0000000..6428cf4
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_style_addition.cc
+@@ -0,0 +1,15 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/attr_style_addition.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++std::unique_ptr<JSONObject> AttrStyleAddition::ToJSON() const {
++  auto json = Attr::ToJSON();
++  json->SetString("event_type", "AttrStyleAddition");
++  return json;
++}
++
++}  // namespace AdGraph
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/adgraph/attr_style_addition.h b/third_party/blink/renderer/adgraph/attr_style_addition.h
+new file mode 100644
+index 0000000..f65b70b4
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_style_addition.h
+@@ -0,0 +1,18 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_ADDITION_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_ADDITION_H
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/attr.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class AttrStyleAddition : public Attr {
++  public:
++    std::unique_ptr<JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_ADDITION_H
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/adgraph/attr_style_removal.cc b/third_party/blink/renderer/adgraph/attr_style_removal.cc
+new file mode 100644
+index 0000000..e0eeb48
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_style_removal.cc
+@@ -0,0 +1,20 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/attr_style_removal.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++AttrStyleRemoval::AttrStyleRemoval(DOMNodeId node_id,
++                                   NodeAttribute node_attribute,
++                                   ActorId actor_id)
++    : Attr(node_id, node_attribute, actor_id){};
++
++std::unique_ptr<JSONObject> AttrStyleRemoval::ToJSON() const {
++  auto json = Attr::ToJSON();
++  json->SetString("event_type", "AttrStyleRemoval");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/attr_style_removal.h b/third_party/blink/renderer/adgraph/attr_style_removal.h
+new file mode 100644
+index 0000000..6e18b82
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_style_removal.h
+@@ -0,0 +1,21 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_REMOVAL_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_REMOVAL_H
++#include "third_party/blink/renderer/adgraph/attr.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class AttrStyleRemoval : public Attr {
++ public:
++  AttrStyleRemoval(DOMNodeId node_id,
++                   NodeAttribute node_attribute,
++                   ActorId actor_id);
++  std::unique_ptr<JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_REMOVAL_H
+diff --git a/third_party/blink/renderer/adgraph/attr_style_text_addition.cc b/third_party/blink/renderer/adgraph/attr_style_text_addition.cc
+new file mode 100644
+index 0000000..e7a3270
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_style_text_addition.cc
+@@ -0,0 +1,22 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/attr_style_text_addition.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++AttrStyleTextAddition::AttrStyleTextAddition(DOMNodeId node_id,
++  NodeAttribute node_attribute,
++  ActorId actor_id) :
++    Attr(node_id,
++      node_attribute,
++      actor_id) {};
++
++std::unique_ptr<JSONObject> AttrStyleTextAddition::ToJSON() const {
++  auto json = Attr::ToJSON();
++  json->SetString("event_type", "AttrStyleTextAddition");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/attr_style_text_addition.h b/third_party/blink/renderer/adgraph/attr_style_text_addition.h
+new file mode 100644
+index 0000000..addc618
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/attr_style_text_addition.h
+@@ -0,0 +1,22 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_TEXT_ADDITION_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_TEXT_ADDITION_H
++
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/attr.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class AttrStyleTextAddition : public Attr {
++  public:
++    AttrStyleTextAddition(DOMNodeId node_id,
++      NodeAttribute node_attribute,
++      ActorId actor_id);
++    std::unique_ptr<JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_ATTR_STYLE_TEXT_ADDITION_H
+diff --git a/third_party/blink/renderer/adgraph/context_map.cc b/third_party/blink/renderer/adgraph/context_map.cc
+new file mode 100644
+index 0000000..38adbd3
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/context_map.cc
+@@ -0,0 +1,72 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/context_map.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++
++#include <signal.h>
++
++namespace AdGraph {
++
++bool ContextMap::hasRegisteredSignalHandler = false;
++
++void ContextMapSignalHandler(int signal) {
++  ContextMap::getInstance().WriteAllDocumentsToDisk();
++}
++
++ContextMap& ContextMap::getInstance() {
++  if (!ContextMap::hasRegisteredSignalHandler) {
++    ContextMap::hasRegisteredSignalHandler = true;
++    signal(30, &ContextMapSignalHandler);
++  }
++
++  static ContextMap sharedInstance;
++  return sharedInstance;
++}
++
++void ContextMap::WriteAllDocumentsToDisk() {
++  for (std::map<IsolateId, blink::Document*>::iterator it = map_.begin(); it != map_.end(); ++it) {
++    blink::Document* document = it->second;
++    document->adgraph_timeline.WriteToDisk(document->Url(), document->TopDocument().Url());
++  }
++}
++
++blink::Document* ContextMap::GetDocument(IsolateId ad_graph_id) const {
++  auto search = map_.find(ad_graph_id);
++  if (search == map_.end()) {
++    return nullptr;
++  }
++  return search->second;
++}
++
++void ReceivedFunctionInvocationInIsolate(IsolateId ad_graph_id, int script_id) {
++  blink::Document* document = nullptr;
++  document = AdGraph::ContextMap::getInstance().GetDocument(ad_graph_id);
++  if (document != nullptr) {
++    document->adgraph_timeline.PushActiveScript(script_id);
++    // document->adgraph_timeline.PrintScriptStack();
++  }
++}
++
++void EndedFunctionInvocationInIsolate(IsolateId ad_graph_id) {
++  blink::Document* document = nullptr;
++  document = AdGraph::ContextMap::getInstance().GetDocument(ad_graph_id);
++  if (document != nullptr) {
++    document->adgraph_timeline.PopActiveScript();
++    // document->adgraph_timeline.PrintScriptStack();
++  }
++}
++
++void EvalAndFunctionScriptCreation(IsolateId ad_graph_id, std::unique_ptr<char []> source_code, ScriptId scriptId){
++  blink::Document* document = nullptr;
++  document = AdGraph::ContextMap::getInstance().GetDocument(ad_graph_id);
++  if (document != nullptr) {
++    WTF::String wtf_source_code(source_code.get());
++    document->adgraph_timeline.RegisterScriptEvalFirstOccurance(wtf_source_code, scriptId);
++  }
++}
++
++void ContextMap::SetContextAndDocument(IsolateId ad_graph_id, blink::Document* document) {
++  map_[ad_graph_id] = document;
++}
++
++}
+diff --git a/third_party/blink/renderer/adgraph/context_map.h b/third_party/blink/renderer/adgraph/context_map.h
+new file mode 100644
+index 0000000..65ef2eb
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/context_map.h
+@@ -0,0 +1,37 @@
++// AdGraph Instrumentation
++
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_CONTEXT_MAP_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_CONTEXT_MAP_H
++#include <map>
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/core/dom/document.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++#include "v8/include/v8.h"
++
++// #pragma clang diagnostic ignored "-Wexit-time-destructors"
++
++namespace AdGraph {
++
++void ReceivedFunctionInvocationInIsolate(IsolateId ad_graph_id, int script_id);
++void EndedFunctionInvocationInIsolate(IsolateId ad_graph_id);
++void EvalAndFunctionScriptCreation(IsolateId ad_graph_id, std::unique_ptr<char []>, ScriptId scriptId);
++
++class ContextMap {
++  public:
++    blink::Document* GetDocument(IsolateId ad_graph_id) const;
++    void SetContextAndDocument(IsolateId ad_graph_id, blink::Document* document);
++    void WriteAllDocumentsToDisk();
++    static ContextMap& getInstance();
++
++  private:
++    std::map<IsolateId, blink::Document*> map_;
++    static bool hasRegisteredSignalHandler;
++};
++
++}  // namespace AdGraph
++
++// #pragma clang diagnostic pop
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_CONTEXT_MAP_H
+diff --git a/third_party/blink/renderer/adgraph/event.cc b/third_party/blink/renderer/adgraph/event.cc
+new file mode 100644
+index 0000000..d9202526
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/event.cc
+@@ -0,0 +1,16 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/adgraph/event.h"
++
++using blink::JSONObject;
++using AdGraph::ActorId;
++
++namespace AdGraph {
++
++std::unique_ptr<JSONObject> Event::ToJSON() const {
++  std::unique_ptr<JSONObject> json = JSONObject::Create();
++  return json;
++}
++
++}
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/adgraph/event.h b/third_party/blink/renderer/adgraph/event.h
+new file mode 100644
+index 0000000..e308aa0
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/event.h
+@@ -0,0 +1,19 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_EVENT_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_EVENT_H
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class Event {
++  public:
++    virtual std::unique_ptr<JSONObject> ToJSON() const;
++    virtual ~Event() {}
++};
++
++}  // namespace AdGraph
++#endif  // ADGRAPH_EVENT_H
+diff --git a/third_party/blink/renderer/adgraph/logging.h b/third_party/blink/renderer/adgraph/logging.h
+new file mode 100644
+index 0000000..bda9af5
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/logging.h
+@@ -0,0 +1,38 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_LOGGING_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_LOGGING_H
++
++#define PRINT_STYLE_TEXT_ATTRIBUTE false
++#define PRINT_SCRIPT_COMPILATION false
++#define PRINT_SCRIPT_EXECUTION false
++#define PRINT_NODE_INSERTION false
++#define PRINT_NODE_REMOVAL false
++#define PRINT_NODE_CREATION false
++#define PRINT_NODE_ATTRIBUTE_ADDITION false
++#define PRINT_NODE_ATTRIBUTE_MODIFICATION false
++#define PRINT_NODE_ATTRIBUTE_REMOVAL false
++#define PRINT_NETWORK_SCRIPT_REQUEST false
++#define PRINT_NETWORK_LINK_REQUEST false
++#define PRINT_NETWORK_VIDEO_REQUEST false
++#define PRINT_NODE_ATTACH_LATER false
++#define PRINT_NETWORK_IFRAME_REQUEST false
++#define PRINT_NETWORK_VIDEO_REQUEST false
++#define PRINT_NETWORK_AJAX_REQUEST false
++#define PRINT_NETWORK_IMAGE_REQUEST false
++#define PRINT_SCRIPT_EVAL false
++#define PRINT_SCRIPT_EXTENSION false
++
++#define ENABLE_PRINT                                                          \
++  PRINT_STYLE_TEXT_ATTRIBUTE || PRINT_SCRIPT_COMPILATION ||                   \
++      PRINT_SCRIPT_EXECUTION || PRINT_NODE_INSERTION || PRINT_NODE_REMOVAL || \
++      PRINT_NODE_CREATION || PRINT_NODE_ATTRIBUTE_ADDITION ||                 \
++      PRINT_NODE_ATTRIBUTE_MODIFICATION || PRINT_NODE_ATTRIBUTE_REMOVAL ||    \
++      PRINT_NETWORK_SCRIPT_REQUEST || PRINT_NETWORK_LINK_REQUEST || \
++      PRINT_NETWORK_VIDEO_REQUEST || PRINT_NODE_ATTACH_LATER || \
++      PRINT_NETWORK_IFRAME_REQUEST || PRINT_NETWORK_VIDEO_REQUEST || \
++      PRINT_NETWORK_AJAX_REQUEST || PRINT_NETWORK_IMAGE_REQUEST || PRINT_SCRIPT_EVAL || PRINT_SCRIPT_EXTENSION
++
++#if ENABLE_PRINT
++#include <iostream>
++#endif
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_LOGGING_H
+diff --git a/third_party/blink/renderer/adgraph/network.cc b/third_party/blink/renderer/adgraph/network.cc
+new file mode 100644
+index 0000000..6c03c7f
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network.cc
+@@ -0,0 +1,40 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/adgraph/network.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++NetworkRequest::NetworkRequest(
++  RequestorId requestor_id,
++  std::string request_url,
++  ActorId actor_id)
++  : actor_id_(actor_id),
++    requestor_id_(requestor_id),
++    request_url_(request_url) {}
++
++RequestorId NetworkRequest::GetRequestorId() const {
++  return requestor_id_;
++}
++
++std::string NetworkRequest::GetRequestURL() const {
++  return request_url_;
++}
++
++ActorId NetworkRequest::GetActorId() const {
++  return actor_id_;
++}
++
++std::unique_ptr<JSONObject> NetworkRequest::ToJSON() const {
++  auto json = Event::ToJSON();
++  json->SetString("event_type", "NetworkRequest");
++  json->SetString("actor_id", WTF::String::Number(actor_id_));
++  json->SetString("requestor_id", WTF::String::Number(requestor_id_));
++  json->SetString("request_url", request_url_.c_str());
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/network.h b/third_party/blink/renderer/adgraph/network.h
+new file mode 100644
+index 0000000..e74a587
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network.h
+@@ -0,0 +1,33 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_H
++#include <string>
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++#include "third_party/blink/renderer/adgraph/event.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NetworkRequest : public Event {
++  public:
++    NetworkRequest(
++      RequestorId requestor_id,
++      std::string request_url,
++      ActorId actor_id);
++
++    RequestorId GetRequestorId() const;
++    std::string GetRequestURL() const;
++    ActorId GetActorId() const;
++    std::unique_ptr<JSONObject> ToJSON() const override;
++
++  protected:
++    ActorId actor_id_;
++    RequestorId requestor_id_;   // It is same as node id.
++    std::string request_url_;  // should keep KURL?
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_H
+diff --git a/third_party/blink/renderer/adgraph/network_iframe_request.cc b/third_party/blink/renderer/adgraph/network_iframe_request.cc
+new file mode 100644
+index 0000000..3f80948
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_iframe_request.cc
+@@ -0,0 +1,20 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/network_iframe_request.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++NetworkIframeRequest::NetworkIframeRequest(RequestorId requestor_id,
++                                           std::string request_url,
++                                           ActorId actor_id)
++    : NetworkRequest(requestor_id, request_url, actor_id){};
++
++std::unique_ptr<JSONObject> NetworkIframeRequest::ToJSON() const {
++  auto network_iframe_json = NetworkRequest::ToJSON();
++  network_iframe_json->SetString("event_type", "NetworkIframeRequest");
++  return network_iframe_json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/network_iframe_request.h b/third_party/blink/renderer/adgraph/network_iframe_request.h
+new file mode 100644
+index 0000000..d6f60bc
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_iframe_request.h
+@@ -0,0 +1,21 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_IFRAME_REQUEST_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_IFRAME_REQUEST_H
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/network.h"
++
++using blink::DOMNodeId;
++
++namespace AdGraph {
++
++class NetworkIframeRequest : public NetworkRequest {
++  public:
++    NetworkIframeRequest(RequestorId requestor_id,
++                       std::string request_url,
++                       ActorId actor_id);
++    std::unique_ptr<blink::JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_IFRAME_REQUEST_H
+diff --git a/third_party/blink/renderer/adgraph/network_image_request.cc b/third_party/blink/renderer/adgraph/network_image_request.cc
+new file mode 100644
+index 0000000..5aa851c
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_image_request.cc
+@@ -0,0 +1,18 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/network_image_request.h"
++
++namespace AdGraph {
++
++NetworkImageRequest::NetworkImageRequest(RequestorId requestor_id,
++                                           std::string request_url,
++                                           ActorId actor_id)
++    : NetworkRequest(requestor_id, request_url, actor_id){};
++
++std::unique_ptr<blink::JSONObject> NetworkImageRequest::ToJSON() const {
++  auto json = NetworkRequest::ToJSON();
++  json->SetString("event_type", "NetworkImageRequest");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/network_image_request.h b/third_party/blink/renderer/adgraph/network_image_request.h
+new file mode 100644
+index 0000000..ce81899
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_image_request.h
+@@ -0,0 +1,19 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_IMAGE_REQUEST_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_IMAGE_REQUEST_H
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/network.h"
++
++namespace AdGraph {
++
++class NetworkImageRequest : public NetworkRequest {
++ public:
++   NetworkImageRequest(RequestorId requestor_id,
++                       std::string request_url,
++                       ActorId actor_id);
++  std::unique_ptr<blink::JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_IMAGE_REQUEST_H
+diff --git a/third_party/blink/renderer/adgraph/network_link_request.cc b/third_party/blink/renderer/adgraph/network_link_request.cc
+new file mode 100644
+index 0000000..ef625c74
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_link_request.cc
+@@ -0,0 +1,20 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/network_link_request.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++NetworkLinkRequest::NetworkLinkRequest(RequestorId requestor_id,
++                                           std::string request_url,
++                                           ActorId actor_id)
++    : NetworkRequest(requestor_id, request_url, actor_id){};
++
++std::unique_ptr<JSONObject> NetworkLinkRequest::ToJSON() const {
++  auto json = NetworkRequest::ToJSON();
++  json->SetString("event_type", "NetworkLinkRequest");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/network_link_request.h b/third_party/blink/renderer/adgraph/network_link_request.h
+new file mode 100644
+index 0000000..dbc82f9
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_link_request.h
+@@ -0,0 +1,21 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_LINK_REQUEST_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_LINK_REQUEST_H
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/network.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NetworkLinkRequest : public NetworkRequest {
++  public:
++    NetworkLinkRequest(RequestorId requestor_id,
++                       std::string request_url,
++                       ActorId actor_id);
++    std::unique_ptr<blink::JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_LINK_REQUEST_H
+diff --git a/third_party/blink/renderer/adgraph/network_resource_request.cc b/third_party/blink/renderer/adgraph/network_resource_request.cc
+new file mode 100644
+index 0000000..f8c897d
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_resource_request.cc
+@@ -0,0 +1,49 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/network_resource_request.h"
++
++namespace AdGraph {
++
++NetworkResourceRequest::NetworkResourceRequest(
++  uint64_t requestor_id,
++  std::string request_url,
++  DOMNodeId actor_id,
++  uint64_t request_id,
++  int request_line,
++  int request_column,
++  std::string request_type)
++  : NetworkRequest(requestor_id,
++      request_url,
++      actor_id),
++    request_id_(request_id),
++    request_line_(request_line),
++    request_column_(request_column),
++    request_type_(request_type) {}
++
++uint64_t NetworkResourceRequest::GetRequestId() const {
++  return request_id_;
++}
++
++int NetworkResourceRequest::GetRequestLine() const {
++  return request_line_;
++}
++
++int NetworkResourceRequest::GetRequestColumn() const {
++  return request_column_;
++}
++
++std::string NetworkResourceRequest::GetRequestType() const {
++  return request_type_;
++}
++
++std::unique_ptr<blink::JSONObject> NetworkResourceRequest::ToJSON() const {
++  auto json = NetworkRequest::ToJSON();
++  json->SetString("event_type", "NetworkResourceRequest");
++  json->SetString("request_id", WTF::String::Number(request_id_));
++  json->SetInteger("request_line", request_line_);
++  json->SetInteger("request_column", request_column_);
++  json->SetString("request_type", request_type_.c_str());
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/network_resource_request.h b/third_party/blink/renderer/adgraph/network_resource_request.h
+new file mode 100644
+index 0000000..2566d1f
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_resource_request.h
+@@ -0,0 +1,41 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_RESOURCE_REQUEST_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_RESOURCE_REQUEST_H
++#include <string>
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/network.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NetworkResourceRequest : public NetworkRequest {
++  public:
++    NetworkResourceRequest(
++      RequestorId requestor_id,
++      std::string request_url,
++      DOMNodeId actor_id,
++      uint64_t request_id,
++      int request_line,
++      int request_column,
++      std::string request_type);
++
++  uint64_t GetRequestId() const;
++  int GetRequestLine() const;
++  int GetRequestColumn() const;
++  std::string GetRequestType() const;
++  std::unique_ptr<JSONObject> ToJSON() const override;
++
++ protected:
++    uint64_t request_id_;
++    int request_line_;
++    int request_column_;
++    std::string request_type_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_RESOURCE_REQUEST_H
+diff --git a/third_party/blink/renderer/adgraph/network_script_request.cc b/third_party/blink/renderer/adgraph/network_script_request.cc
+new file mode 100644
+index 0000000..2ffab3f
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_script_request.cc
+@@ -0,0 +1,19 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/network_script_request.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++NetworkScriptRequest::NetworkScriptRequest(RequestorId requestor_id,
++                                           std::string request_url,
++                                           ActorId actor_id)
++    : NetworkRequest(requestor_id, request_url, actor_id){};
++
++std::unique_ptr<JSONObject> NetworkScriptRequest::ToJSON() const {
++  auto json = NetworkRequest::ToJSON();
++  json->SetString("event_type", "NetworkScriptRequest");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/network_script_request.h b/third_party/blink/renderer/adgraph/network_script_request.h
+new file mode 100644
+index 0000000..2edd22a
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_script_request.h
+@@ -0,0 +1,21 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_SCRIPT_REQUEST_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_SCRIPT_REQUEST_H
++#include "third_party/blink/renderer/adgraph/network.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NetworkScriptRequest : public NetworkRequest {
++ public:
++  NetworkScriptRequest(RequestorId requestor_id,
++                       std::string request_url,
++                       ActorId actor_id);
++  std::unique_ptr<blink::JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_SCRIPT_REQUEST_H
+diff --git a/third_party/blink/renderer/adgraph/network_video_request.cc b/third_party/blink/renderer/adgraph/network_video_request.cc
+new file mode 100644
+index 0000000..8fb9436
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_video_request.cc
+@@ -0,0 +1,20 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/network_video_request.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++NetworkVideoRequest::NetworkVideoRequest(RequestorId requestor_id,
++                                           std::string request_url,
++                                           ActorId actor_id)
++    : NetworkRequest(requestor_id, request_url, actor_id){};
++
++std::unique_ptr<JSONObject> NetworkVideoRequest::ToJSON() const {
++  auto json = NetworkRequest::ToJSON();
++  json->SetString("event_type", "NetworkVideoRequest");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/network_video_request.h b/third_party/blink/renderer/adgraph/network_video_request.h
+new file mode 100644
+index 0000000..2bbe4c3
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_video_request.h
+@@ -0,0 +1,21 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_VIDEO_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_VIDEO_H
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/network.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NetworkVideoRequest : public NetworkRequest {
++  public:
++    NetworkVideoRequest(RequestorId requestor_id,
++      std::string request_url,
++      ActorId actor_id);
++    std::unique_ptr<JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_VIDEO_H
+diff --git a/third_party/blink/renderer/adgraph/network_xmlhttp_request.cc b/third_party/blink/renderer/adgraph/network_xmlhttp_request.cc
+new file mode 100644
+index 0000000..145a41c
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_xmlhttp_request.cc
+@@ -0,0 +1,20 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/network_xmlhttp_request.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++NetworkXMLHTTPRequest::NetworkXMLHTTPRequest(RequestorId requestor_id,
++                                           std::string request_url,
++                                           ActorId actor_id)
++    : NetworkRequest(requestor_id, request_url, actor_id){};
++
++std::unique_ptr<JSONObject> NetworkXMLHTTPRequest::ToJSON() const {
++    auto json = NetworkRequest::ToJSON();
++    json->SetString("event_type", "NetworkXMLHTTPRequest");
++    return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/network_xmlhttp_request.h b/third_party/blink/renderer/adgraph/network_xmlhttp_request.h
+new file mode 100644
+index 0000000..e40d1ef
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/network_xmlhttp_request.h
+@@ -0,0 +1,20 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_XMLHTTP_REQUEST_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_XMLHTTP_REQUEST_H
++#include <string>
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/network.h"
++
++namespace AdGraph {
++
++class NetworkXMLHTTPRequest : public NetworkRequest {
++  public:
++    NetworkXMLHTTPRequest(RequestorId requestor_id,
++                       std::string request_url,
++                       ActorId actor_id);
++    std::unique_ptr<blink::JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NETWORK_XMLHTTP_REQUEST_H
+diff --git a/third_party/blink/renderer/adgraph/node.cc b/third_party/blink/renderer/adgraph/node.cc
+new file mode 100644
+index 0000000..8c9ed91
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node.cc
+@@ -0,0 +1,31 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/adgraph/node.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++Node::Node(DOMNodeId node_id,
++  ActorId actor_id) :
++    node_id_(node_id),
++    actor_id_(actor_id){};
++
++DOMNodeId Node::GetNodeId() const {
++  return node_id_;
++}
++
++ActorId Node::GetActorId() const {
++  return actor_id_;
++}
++
++std::unique_ptr<JSONObject> Node::ToJSON() const {
++  auto json = Event::ToJSON();
++  json->SetString("node_id", WTF::String::Number(node_id_));
++  json->SetString("actor_id", WTF::String::Number(actor_id_));
++  return json;
++}
++
++}
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/adgraph/node.h b/third_party/blink/renderer/adgraph/node.h
+new file mode 100644
+index 0000000..f0eb9d2
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node.h
+@@ -0,0 +1,28 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_H
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/event.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class Node : public Event {
++  public:
++    Node(DOMNodeId node_id, ActorId actor_id);
++    DOMNodeId GetNodeId() const;
++    std::unique_ptr<JSONObject> ToJSON() const override;
++    ActorId GetActorId() const;
++
++  protected:
++    DOMNodeId node_id_;
++    ActorId actor_id_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_H
+diff --git a/third_party/blink/renderer/adgraph/node_attach_later.cc b/third_party/blink/renderer/adgraph/node_attach_later.cc
+new file mode 100644
+index 0000000..5394b42
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_attach_later.cc
+@@ -0,0 +1,35 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/adgraph/node_attach_later.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++NodeAttachLater::NodeAttachLater(
++    DOMNodeId node_id,
++    DOMNodeId node_parent_id,
++    blink::Node::NodeType node_type,
++    std::string tag_name,
++    ActorId actor_id)
++    : NodeMaterialized(
++        node_id,
++        actor_id,
++        node_type,
++        tag_name
++      ),
++      node_parent_id_(node_parent_id) {}
++
++DOMNodeId NodeAttachLater::GetNodeParentId() const {
++  return node_parent_id_;
++}
++
++std::unique_ptr<JSONObject> NodeAttachLater::ToJSON() const {
++  auto json = NodeMaterialized::ToJSON();
++  json->SetString("event_type", "NodeAttachLater");
++  json->SetString("node_parent_id", WTF::String::Number(node_parent_id_));
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/node_attach_later.h b/third_party/blink/renderer/adgraph/node_attach_later.h
+new file mode 100644
+index 0000000..7a008e0
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_attach_later.h
+@@ -0,0 +1,31 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_AGRAPH_NODE_ATTACH_LATER_H
++#define THIRD_PARTY_BLINK_RENDERER_AGRAPH_NODE_ATTACH_LATER_H
++#include <string>
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/node_materialized.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NodeAttachLater : public NodeMaterialized {
++ public:
++    NodeAttachLater(
++      DOMNodeId node_id,
++      DOMNodeId node_parent_id,
++      blink::Node::NodeType node_type,
++      std::string tag_name,
++      ActorId actor_id);
++    DOMNodeId GetNodeParentId() const;
++    std::unique_ptr<JSONObject> ToJSON() const override;
++
++  private:
++    DOMNodeId node_parent_id_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_AGRAPH_NODE_ATTACH_LATER_H
+diff --git a/third_party/blink/renderer/adgraph/node_attribute.cc b/third_party/blink/renderer/adgraph/node_attribute.cc
+new file mode 100644
+index 0000000..3b1dc50
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_attribute.cc
+@@ -0,0 +1,22 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/node_attribute.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++NodeAttribute::NodeAttribute(
++  std::string attr_name,
++  std::string attr_value) :
++    attr_name_(attr_name),
++    attr_value_(attr_value) {}
++
++std::unique_ptr<JSONObject> NodeAttribute::ToJSON() const {
++  std::unique_ptr<JSONObject> json = JSONObject::Create();
++  json->SetString("event_type", "NodeAttribute");
++  json->SetString("attr_name", attr_name_.c_str());
++  json->SetString("attr_value", attr_value_.c_str());
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/node_attribute.h b/third_party/blink/renderer/adgraph/node_attribute.h
+new file mode 100644
+index 0000000..fa67819
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_attribute.h
+@@ -0,0 +1,24 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_ATTRIBUTE_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_ATTRIBUTE_H
++#include <string>
++#include "third_party/blink/renderer/platform/json/json_values.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NodeAttribute {
++  public:
++    NodeAttribute(std::string attr_name, std::string attr_value);
++    std::unique_ptr<JSONObject> ToJSON() const;
++ 
++  private:
++    std::string attr_name_;
++    std::string attr_value_;
++};
++
++}  // namespace AdGraph
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_ATTRIBUTE_H
+diff --git a/third_party/blink/renderer/adgraph/node_creation.cc b/third_party/blink/renderer/adgraph/node_creation.cc
+new file mode 100644
+index 0000000..108d56e
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_creation.cc
+@@ -0,0 +1,28 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/node_creation.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++NodeCreation::NodeCreation(
++  DOMNodeId node_id,
++  ActorId actor_id,
++  blink::Node::NodeType node_type,
++  std::string tag_name) :
++    NodeMaterialized(
++      node_id,
++      actor_id,
++      node_type,
++      tag_name
++    ) {};
++
++std::unique_ptr<JSONObject> NodeCreation::ToJSON() const {
++  auto json = NodeMaterialized::ToJSON();
++  json->SetString("event_type", "NodeCreation");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/node_creation.h b/third_party/blink/renderer/adgraph/node_creation.h
+new file mode 100644
+index 0000000..8ce8e52
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_creation.h
+@@ -0,0 +1,27 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_CREATION_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_CREATION_H
++
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/node_materialized.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NodeCreation : public NodeMaterialized {
++  public:
++    NodeCreation(
++      DOMNodeId node_id,
++      ActorId actor_id,
++      blink::Node::NodeType node_type,
++      std::string tag_name);
++
++    std::unique_ptr<JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_CREATION_H
+diff --git a/third_party/blink/renderer/adgraph/node_insertion.cc b/third_party/blink/renderer/adgraph/node_insertion.cc
+new file mode 100644
+index 0000000..51ec249
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_insertion.cc
+@@ -0,0 +1,65 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "./node_insertion.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++using blink::JSONArray;
++
++namespace AdGraph {
++
++NodeInsertion::NodeInsertion(
++  DOMNodeId node_id,
++  DOMNodeId node_parent_id,
++  DOMNodeId node_previous_sibling_id,
++  blink::Node::NodeType node_type,
++  blink::Node::NodeType parent_node_type,
++  std::string tag_name,
++  std::vector<NodeAttribute> node_attributes,
++  ActorId actor_id) :
++    NodeMaterialized(
++      node_id,
++      actor_id,
++      node_type,
++      tag_name
++    ),
++    node_parent_id_(node_parent_id),
++    node_previous_sibling_id_(node_previous_sibling_id),
++    parent_node_type_(parent_node_type),
++    node_attributes_(node_attributes) {};
++
++DOMNodeId NodeInsertion::GetNodeParentId() const {
++  return node_parent_id_;
++}
++
++DOMNodeId NodeInsertion::GetNodePreviousSiblingId() const {
++  return node_previous_sibling_id_;
++}
++
++blink::Node::NodeType NodeInsertion::GetParentNodeType() const {
++  return parent_node_type_;
++}
++
++std::vector<NodeAttribute> NodeInsertion::GetNodeAttributes() const {
++  return node_attributes_;
++}
++
++std::unique_ptr<JSONObject> NodeInsertion::ToJSON() const {
++  auto json = NodeMaterialized::ToJSON();
++  json->SetString("event_type", "NodeInsertion");
++  json->SetString("node_parent_id", WTF::String::Number(node_parent_id_));
++  json->SetString("node_previous_sibling_id", WTF::String::Number(node_previous_sibling_id_));
++  json->SetInteger("parent_node_type", parent_node_type_);
++
++  std::unique_ptr<JSONArray> attr_arr = JSONArray::Create();
++
++  for (NodeAttribute node_attribute_obj : node_attributes_) {
++    attr_arr->PushObject(node_attribute_obj.ToJSON());
++  }
++
++  json->SetArray("node_attributes", std::move(attr_arr));
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/node_insertion.h b/third_party/blink/renderer/adgraph/node_insertion.h
+new file mode 100644
+index 0000000..81c6ce3
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_insertion.h
+@@ -0,0 +1,44 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_INSERTION_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_INSERTION_H
++#include <string>
++#include <vector>
++#include "third_party/blink/renderer/adgraph/event.h"
++#include "third_party/blink/renderer/adgraph/node_attribute.h"
++#include "third_party/blink/renderer/adgraph/node_materialized.h"
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/core/dom/node.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NodeInsertion : public NodeMaterialized {
++ public:
++  NodeInsertion(DOMNodeId node_id,
++                DOMNodeId node_parent_id,
++                DOMNodeId node_previous_sibling_id,
++                blink::Node::NodeType node_type,
++                blink::Node::NodeType parent_node_type,
++                std::string tag_name,
++                std::vector<NodeAttribute> _node_attributes,
++                ActorId actor_id);
++
++  DOMNodeId GetNodeParentId() const;
++  DOMNodeId GetNodePreviousSiblingId() const;
++  blink::Node::NodeType GetParentNodeType() const;
++  std::vector<NodeAttribute> GetNodeAttributes() const;
++  std::unique_ptr<JSONObject> ToJSON() const override;
++
++ private:
++  DOMNodeId node_parent_id_;
++  DOMNodeId node_previous_sibling_id_;
++  blink::Node::NodeType parent_node_type_;
++  std::vector<NodeAttribute> node_attributes_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_INSERTION_H
+diff --git a/third_party/blink/renderer/adgraph/node_materialized.cc b/third_party/blink/renderer/adgraph/node_materialized.cc
+new file mode 100644
+index 0000000..0113416
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_materialized.cc
+@@ -0,0 +1,41 @@
++// AdGraph Instrumentation
++
++#include <string>
++#include "third_party/blink/renderer/adgraph/node_materialized.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++NodeMaterialized::NodeMaterialized(
++  DOMNodeId node_id,
++  ActorId actor_id,
++  blink::Node::NodeType node_type,
++  std::string tag_name) :
++    Node(node_id, actor_id),
++    node_type_(node_type),
++    tag_name_(tag_name) {};
++
++blink::Node::NodeType NodeMaterialized::GetNodeType() const {
++  return node_type_;
++}
++
++std::string NodeMaterialized::GetTagName() const {
++  return tag_name_;
++}
++
++std::unique_ptr<JSONObject> NodeMaterialized::ToJSON() const {
++  auto json = Node::ToJSON();
++  json->SetInteger("node_type", node_type_);
++  if (node_type_ == blink::Node::NodeType::kElementNode) {
++    json->SetString("tag_name", tag_name_.c_str());
++  }
++  else if (node_type_ == blink::Node::NodeType::kTextNode) {
++    json->SetString("tag_name", tag_name_.c_str());
++    // json->SetString("node_text", tag_name_.c_str());
++  }
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/node_materialized.h b/third_party/blink/renderer/adgraph/node_materialized.h
+new file mode 100644
+index 0000000..709bec1
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_materialized.h
+@@ -0,0 +1,33 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_MATERIALIZED_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_MATERIALIZED_H
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/core/dom/node.h"
++#include "third_party/blink/renderer/adgraph/node.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NodeMaterialized : public Node {
++  public:
++    NodeMaterialized(
++      DOMNodeId node_id,
++      ActorId actor_id,
++      blink::Node::NodeType node_type,
++      std::string tag_name);
++
++    blink::Node::NodeType GetNodeType() const;
++    std::string GetTagName() const;
++    std::unique_ptr<JSONObject> ToJSON() const override;
++
++  protected:
++    blink::Node::NodeType node_type_;
++    std::string tag_name_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_H
+diff --git a/third_party/blink/renderer/adgraph/node_removal.cc b/third_party/blink/renderer/adgraph/node_removal.cc
+new file mode 100644
+index 0000000..e2d57e1
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_removal.cc
+@@ -0,0 +1,20 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/node_removal.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++NodeRemoval::NodeRemoval(DOMNodeId node_id,
++  ActorId actor_id) :
++    Node(node_id,
++      actor_id) {};
++
++std::unique_ptr<JSONObject> NodeRemoval::ToJSON() const {
++  auto json = Node::ToJSON();
++  json->SetString("event_type", "NodeRemoval");
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/node_removal.h b/third_party/blink/renderer/adgraph/node_removal.h
+new file mode 100644
+index 0000000..805868f
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/node_removal.h
+@@ -0,0 +1,23 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_REMOVAL_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_REMOVAL_H
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/node.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class NodeRemoval : public Node {
++  public:
++    NodeRemoval(
++      DOMNodeId node_id,
++      ActorId actor_id);
++    std::unique_ptr<JSONObject> ToJSON() const override;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_NODE_REMOVAL_H
+diff --git a/third_party/blink/renderer/adgraph/script.cc b/third_party/blink/renderer/adgraph/script.cc
+new file mode 100644
+index 0000000..8011f00
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script.cc
+@@ -0,0 +1,31 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/adgraph/script.h"
++
++
++namespace AdGraph {
++
++Script::Script(
++  ScriptId script_id,
++  std::string script_text) :
++    script_id_(script_id),
++    script_text_(script_text) {}
++
++ScriptId Script::GetScriptId() const {
++  return script_id_;
++}
++
++std::string Script::GetScriptText() const {
++  return script_text_;
++}
++
++std::unique_ptr<blink::JSONObject> Script::ToJSON() const {
++    auto json = Event::ToJSON();
++    json->SetString("event_type", "Script");
++    json->SetString("script_id", WTF::String::Number(script_id_));
++    json->SetString("script_text", script_text_.c_str());
++    return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/script.h b/third_party/blink/renderer/adgraph/script.h
+new file mode 100644
+index 0000000..797462a
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script.h
+@@ -0,0 +1,31 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_H
++#include <string>
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++#include "third_party/blink/renderer/adgraph/event.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class Script : public Event {
++  public:
++    Script(ScriptId script_id,
++      std::string script_text);
++
++    ScriptId GetScriptId() const;
++    std::string GetScriptText() const;
++    std::unique_ptr<JSONObject> ToJSON() const override;
++
++  protected:
++    ScriptId script_id_;
++    std::string script_text_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_H
+diff --git a/third_party/blink/renderer/adgraph/script_compilation.cc b/third_party/blink/renderer/adgraph/script_compilation.cc
+new file mode 100644
+index 0000000..66fe4c5
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script_compilation.cc
+@@ -0,0 +1,32 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/script_compilation.h"
++
++namespace AdGraph {
++ScriptCompilation::ScriptCompilation(
++  ScriptId script_id,
++  DOMNodeId node_id,
++  std::string script_url,
++  std::string script_text) :
++    Script(script_id,
++      script_text),
++      node_id_(node_id),
++      script_url_(script_url) {}
++
++DOMNodeId ScriptCompilation::GetNodeId() const {
++  return node_id_;
++}
++
++std::string ScriptCompilation::GetScriptURL() const {
++  return script_url_;
++}
++
++std::unique_ptr<JSONObject> ScriptCompilation::ToJSON() const {
++  auto json = Script::ToJSON();
++  json->SetString("event_type", "ScriptCompilation");
++  json->SetString("node_id",  WTF::String::Number(node_id_));
++  json->SetString("script_url", script_url_.c_str());
++  return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/script_compilation.h b/third_party/blink/renderer/adgraph/script_compilation.h
+new file mode 100644
+index 0000000..3e9eafb
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script_compilation.h
+@@ -0,0 +1,29 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_COMPILATION_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_COMPILATION_H
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/script.h"
++
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class ScriptCompilation : public Script {
++  public:
++  ScriptCompilation(ScriptId script_id,
++      DOMNodeId node_id,
++      std::string script_url,
++      std::string script_text);
++    
++    DOMNodeId GetNodeId() const;
++    std::string GetScriptURL() const;
++    std::unique_ptr<JSONObject> ToJSON() const override;
++
++  protected:
++    DOMNodeId node_id_;
++    std::string script_url_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_COMPILATION_H
+diff --git a/third_party/blink/renderer/adgraph/script_eval.cc b/third_party/blink/renderer/adgraph/script_eval.cc
+new file mode 100644
+index 0000000..93d5fa7
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script_eval.cc
+@@ -0,0 +1,26 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/script_eval.h"
++
++namespace AdGraph {
++
++ScriptEval::ScriptEval(
++  ScriptId script_id,
++  ScriptId script_parent_id, 
++  std::string script_text) :
++    Script(script_id,
++      script_text),
++    script_parent_id_(script_parent_id) {}
++
++ScriptId ScriptEval::GetParentScriptId() const{
++    return script_parent_id_;
++}
++
++std::unique_ptr<JSONObject> ScriptEval::ToJSON() const {
++    auto json = Script::ToJSON();
++    json->SetString("event_type", "ScriptEval");
++    json->SetString("script_parent_id", WTF::String::Number(script_parent_id_));
++    return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/script_eval.h b/third_party/blink/renderer/adgraph/script_eval.h
+new file mode 100644
+index 0000000..bd681ae
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script_eval.h
+@@ -0,0 +1,29 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_EVAL_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_EVAL_H
++#include <string>
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++#include "third_party/blink/renderer/adgraph/script.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class ScriptEval : public Script {
++  public:
++    ScriptEval(ScriptId script_id,
++      ScriptId script_parent_id,  
++      std::string script_text);
++
++    ScriptId GetParentScriptId() const;   
++    std::unique_ptr<JSONObject> ToJSON() const override;
++
++  protected:
++    ScriptId script_parent_id_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_EVAL_H
+diff --git a/third_party/blink/renderer/adgraph/script_execution.cc b/third_party/blink/renderer/adgraph/script_execution.cc
+new file mode 100644
+index 0000000..00886b8
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script_execution.cc
+@@ -0,0 +1,40 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/script_execution.h"
++
++namespace AdGraph {
++
++ScriptExecution::ScriptExecution(
++  ScriptId script_id,
++  DOMNodeId node_id,
++  std::string script_url,
++  std::string script_text,
++  bool in_execution) :
++    Script(script_id,
++      script_text),
++    node_id_(node_id),
++    script_url_(script_url),
++    in_execution_(in_execution) {}
++
++DOMNodeId ScriptExecution::GetNodeId() const {
++  return node_id_;
++}
++
++std::string ScriptExecution::GetScriptURL() const {
++  return script_url_;
++}
++
++bool ScriptExecution::GetInExecution() const {
++  return in_execution_;
++}
++
++std::unique_ptr<JSONObject> ScriptExecution::ToJSON() const {
++    auto json = Script::ToJSON();
++    json->SetString("event_type", "ScriptExecution");
++    json->SetString("node_id",  WTF::String::Number(node_id_));
++    json->SetString("script_url", script_url_.c_str());
++    json->SetBoolean("in_execution", in_execution_);
++    return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/script_execution.h b/third_party/blink/renderer/adgraph/script_execution.h
+new file mode 100644
+index 0000000..b4e9ead
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script_execution.h
+@@ -0,0 +1,36 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_EXECUTION_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_EXECUTION_H
++#include <string>
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++#include "third_party/blink/renderer/adgraph/script.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class ScriptExecution : public Script {
++  public:
++    ScriptExecution(ScriptId script_id,
++      DOMNodeId node_id,
++      std::string script_url,
++      std::string script_text,
++      bool in_execution);
++
++    DOMNodeId GetNodeId() const;
++    std::string GetScriptURL() const;
++    bool GetInExecution() const;
++    std::unique_ptr<JSONObject> ToJSON() const override;
++
++  protected:
++    DOMNodeId node_id_;
++    std::string script_url_;
++    bool in_execution_;
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_EXECUTION_H
+diff --git a/third_party/blink/renderer/adgraph/script_extension.cc b/third_party/blink/renderer/adgraph/script_extension.cc
+new file mode 100644
+index 0000000..61bc909
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script_extension.cc
+@@ -0,0 +1,19 @@
++// AdGraph Instrumentation
++
++#include "third_party/blink/renderer/adgraph/script_extension.h"
++
++namespace AdGraph {
++
++ScriptExtension::ScriptExtension(
++  ScriptId script_id,
++  std::string script_text) :
++    Script(script_id,
++      script_text) {}
++
++std::unique_ptr<JSONObject> ScriptExtension::ToJSON() const {
++    auto json = Script::ToJSON();
++    json->SetString("event_type", "ScriptExtension");
++    return json;
++}
++
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/script_extension.h b/third_party/blink/renderer/adgraph/script_extension.h
+new file mode 100644
+index 0000000..9016c28
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/script_extension.h
+@@ -0,0 +1,25 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_EXTENSION_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_EXTENSION_H
++#include <string>
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++#include "third_party/blink/renderer/adgraph/script.h"
++
++using blink::DOMNodeId;
++using blink::JSONObject;
++
++namespace AdGraph {
++
++class ScriptExtension : public Script {
++  public:
++    ScriptExtension(ScriptId script_id, 
++    std::string script_text);
++
++    std::unique_ptr<JSONObject> ToJSON() const override;
++
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_SCRIPT_EXTENSION_H
+diff --git a/third_party/blink/renderer/adgraph/timeline.cc b/third_party/blink/renderer/adgraph/timeline.cc
+new file mode 100644
+index 0000000..84598db
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/timeline.cc
+@@ -0,0 +1,679 @@
++// AdGraph Instrumentation
++
++#include <sys/stat.h>
++#include "base/time/time.h"
++#include "base/files/file_path.h"
++#include "base/files/file_util.h"
++#include "base/path_service.h"
++#include "base/files/file.h"
++
++#include "third_party/blink/renderer/platform/weborigin/kurl.h"
++
++#include "third_party/blink/renderer/adgraph/timeline.h"
++
++#include "third_party/blink/renderer/adgraph/logging.h"
++#include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
++
++#include "third_party/blink/renderer/adgraph/attr_style_text_addition.h"
++#include "third_party/blink/renderer/adgraph/attr_addition.h"
++#include "third_party/blink/renderer/adgraph/attr_modification.h"
++#include "third_party/blink/renderer/adgraph/attr_removal.h"
++#include "third_party/blink/renderer/adgraph/node_attribute.h"
++#include "third_party/blink/renderer/adgraph/node_creation.h"
++#include "third_party/blink/renderer/adgraph/node_insertion.h"
++#include "third_party/blink/renderer/adgraph/node_removal.h"
++#include "third_party/blink/renderer/adgraph/network_iframe_request.h"
++#include "third_party/blink/renderer/adgraph/network_image_request.h"
++#include "third_party/blink/renderer/adgraph/network_link_request.h"
++#include "third_party/blink/renderer/adgraph/network_resource_request.h"
++#include "third_party/blink/renderer/adgraph/network_script_request.h"
++#include "third_party/blink/renderer/adgraph/network_video_request.h"
++#include "third_party/blink/renderer/adgraph/network_xmlhttp_request.h"
++
++#include "third_party/blink/renderer/core/html/html_link_element.h"
++#include "third_party/blink/renderer/core/html/html_iframe_element.h"
++#include "third_party/blink/renderer/core/html/html_source_element.h"
++
++#include <iostream>
++
++using blink::Node;
++
++namespace AdGraph {
++
++int Timeline::GetSize() const {
++  return timeline_.size();
++}
++
++std::unique_ptr<Event> Timeline::Peek() {
++  // This seems wrong, why move?
++  return std::move(timeline_.front()); //Make sure that is correct and also read what is move()?
++}
++
++std::unique_ptr<blink::JSONArray> Timeline::ToJSON() const {
++  std::unique_ptr<blink::JSONArray> timeline_json = blink::JSONArray::Create();
++
++  for (auto const& event : timeline_) {
++    timeline_json->PushObject(event->ToJSON());
++  }
++  return timeline_json;
++}
++
++void Timeline::RegisterScriptElement(blink::HTMLScriptElement *elm) {
++  // First determine if this is a local or remote script node.
++  auto scriptUrl = elm->Src().Copy();
++  auto isLocalScript = scriptUrl.IsEmpty() || scriptUrl.IsNull();
++  DOMNodeId domNodeId = blink::DOMNodeIds::IdForNode(elm);
++
++  if (isLocalScript == true) {
++    SourceCodeHash codeHash = elm->text().Impl()->GetHash();
++    if (nodeIdToSourceHashes_.count(domNodeId) == 0) {
++      nodeIdToSourceHashes_[domNodeId] = std::vector<SourceCodeHash>();
++    }
++    nodeIdToSourceHashes_[domNodeId].push_back(codeHash);
++
++    if (sourceHashToNodeIds_.count(codeHash) == 0) {
++      sourceHashToNodeIds_[codeHash] = std::vector<DOMNodeId>();
++    }
++    sourceHashToNodeIds_[codeHash].push_back(domNodeId);
++    return;
++  }
++
++  UrlHash scriptUrlHash = scriptUrl.GetString().Impl()->GetHash();
++
++  // Otherwise, handle remote scripts.
++  if (nodeIdToScriptUrlHashes_.count(domNodeId) == 0) {
++    nodeIdToScriptUrlHashes_[domNodeId] = std::vector<UrlHash>();
++  }
++  nodeIdToScriptUrlHashes_[domNodeId].push_back(scriptUrlHash);
++
++  if (scriptSrcHashToNodeIds_.count(scriptUrlHash) == 0) {
++    scriptSrcHashToNodeIds_[scriptUrlHash] = std::vector<DOMNodeId>();
++  }
++  scriptSrcHashToNodeIds_[scriptUrlHash].push_back(domNodeId);
++}
++
++void Timeline::RegisterScriptEvalFirstOccurance(WTF::String source_code, ScriptId scriptId){
++  SourceCodeHash sourceCodeHash = source_code.Impl()->GetHash();
++
++  sourceHashToScriptId_[sourceCodeHash] = scriptId;
++  scriptIdToSourceHash_[scriptId] = sourceCodeHash;
++
++  ScriptId parentScriptId = ParentScriptIdForScriptId(scriptId);
++
++  std::unique_ptr<ScriptEval> event(new ScriptEval(
++    scriptId,
++    parentScriptId,
++    source_code.StripWhiteSpace().Utf8().data()
++  ));
++
++  seen_eval_scripts_.push_back(scriptId);
++
++  #if PRINT_SCRIPT_EVAL
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterScriptExtension(const WTF::String source_code, ScriptId scriptId) {
++  SourceCodeHash sourceCodeHash = source_code.Impl()->GetHash();
++
++  sourceHashToScriptId_[sourceCodeHash] = scriptId;
++  scriptIdToSourceHash_[scriptId] = sourceCodeHash;
++
++  std::unique_ptr<ScriptExtension> event(new ScriptExtension(
++    scriptId,
++    source_code.StripWhiteSpace().Utf8().data()
++  ));
++
++  seen_extension_scripts_.push_back(scriptId);
++
++  #if PRINT_SCRIPT_EXTENSION
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterScriptCompilation(const blink::ScriptSourceCode sourceCode, ScriptId scriptId) {
++  auto scriptUrl = sourceCode.Url();
++  auto isLocalScript = scriptUrl.IsEmpty() || scriptUrl.IsNull();
++  SourceCodeHash sourceCodeHash = sourceCode.Source().Impl()->GetHash();
++
++  if (isLocalScript == false) {
++    UrlHash scriptUrlHash = scriptUrl.GetString().Impl()->GetHash();
++    scriptUrlHashToSourceHash_[scriptUrlHash] = sourceCodeHash;
++    sourceHashToScriptUrlHash_[sourceCodeHash] = scriptUrlHash;
++  }
++
++  sourceHashToScriptId_[sourceCodeHash] = scriptId;
++  scriptIdToSourceHash_[scriptId] = sourceCodeHash;
++
++  DOMNodeId domNodeId = 0;
++  auto nodeid_for_script_id = NodeIdsForScriptId(scriptId);
++
++  if (nodeid_for_script_id.size() > 0){
++    domNodeId = nodeid_for_script_id.back();
++  }
++
++  std::unique_ptr<ScriptCompilation> event(new ScriptCompilation(
++    scriptId,
++    domNodeId,
++    scriptUrl.GetString().Utf8().data(),
++    sourceCode.Source().StripWhiteSpace().Utf8().data()
++  ));
++
++  seen_scripts_.push_back(scriptId); // for debugging. Remove later
++
++  #if PRINT_SCRIPT_COMPILATION
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterScriptExecution(const blink::ScriptSourceCode sourceCode, ScriptId scriptId, bool in_execution) {
++  auto scriptUrl = sourceCode.Url();
++  
++  DOMNodeId domNodeId = 0;
++  auto nodeid_for_script_id = NodeIdsForScriptId(scriptId);
++
++  if (nodeid_for_script_id.size() > 0){
++    domNodeId = nodeid_for_script_id.back();
++  }
++
++  std::unique_ptr<ScriptExecution> event(new ScriptExecution(
++    scriptId,
++    domNodeId,
++    scriptUrl.GetString().Utf8().data(),
++    sourceCode.Source().StripWhiteSpace().Utf8().data(),
++    in_execution
++  ));
++
++  if (in_execution) {
++    PushActiveScript(scriptId);
++  } else {
++    PopActiveScript();
++  }
++
++  #if PRINT_SCRIPT_EXECUTION
++    PrintEvent(event->ToJSON());
++  #endif
++  
++  timeline_.push_back(std::move(event));
++}
++
++std::vector<DOMNodeId> Timeline::NodeIdsForScriptId(ScriptId scriptId) {
++  SourceCodeHash sourceCodeHash = scriptIdToSourceHash_[scriptId];
++  std::vector<DOMNodeId> nodeIds;
++
++  if (sourceHashToNodeIds_.count(sourceCodeHash) == 1) {
++    for (auto const &aNodeId : sourceHashToNodeIds_[sourceCodeHash]) {
++      nodeIds.push_back(aNodeId);
++    }
++  }
++
++  if (sourceHashToScriptUrlHash_.count(sourceCodeHash) == 1) {
++    UrlHash scriptUrlHash = sourceHashToScriptUrlHash_[sourceCodeHash];
++
++    if (scriptSrcHashToNodeIds_.count(scriptUrlHash) == 1) {
++      for (auto const &aNodeId : scriptSrcHashToNodeIds_[scriptUrlHash]) {
++        nodeIds.push_back(aNodeId);
++      }
++    }
++  }
++
++  return nodeIds;
++}
++
++std::vector<ScriptId> Timeline::ScriptIdsForNodeId(DOMNodeId nodeId) {
++  std::vector<ScriptId> scriptIds;
++
++  if (nodeIdToSourceHashes_.count(nodeId) == 1) {
++    for (auto const &aScriptId : nodeIdToSourceHashes_[nodeId]) {
++      scriptIds.push_back(aScriptId);
++    }
++  }
++
++  if (nodeIdToScriptUrlHashes_.count(nodeId) == 1) {
++    for (auto const &aUrlHash: nodeIdToScriptUrlHashes_[nodeId]) {
++      if (scriptUrlHashToSourceHash_.count(aUrlHash) == 1) {
++        auto scriptIdForUrl = scriptUrlHashToSourceHash_[aUrlHash];
++        scriptIds.push_back(scriptIdForUrl);
++      }
++    }
++  }
++
++  return scriptIds;
++}
++
++void Timeline::PushActiveScript(ScriptId active_scriptId) {
++  active_script_stack_.push_back(active_scriptId);
++}
++
++ScriptId Timeline::PopActiveScript() {
++  ScriptId temp = 0;
++
++  if (!active_script_stack_.empty()) {
++    temp = active_script_stack_.back();
++    active_script_stack_.pop_back();
++  }
++  
++  return temp;
++}
++
++ScriptId Timeline::PeekActiveScript() const {
++  ScriptId temp = 0;
++
++  if (!active_script_stack_.empty()) {
++    temp = active_script_stack_.back();
++  }
++
++  return temp;
++}
++
++void Timeline::PrintScriptStack() const {
++  std::cout << "Script Stack: [";
++  for (auto const script_id : active_script_stack_) {
++    std::cout << script_id << ", ";
++  }
++  std::cout << "]\n";
++}
++
++void Timeline::RegisterAttrStyleTextAddition(const blink::AbstractPropertySetCSSStyleDeclaration* elm, const WTF::String& text) {
++  NodeAttribute node_attr("style", text.Utf8().data());
++  DOMNodeId node_id = blink::DOMNodeIds::IdForNode(elm->ParentElement());
++  std::unique_ptr<AttrStyleTextAddition> event(new AttrStyleTextAddition(
++    node_id,
++    node_attr,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_STYLE_TEXT_ATTRIBUTE
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterAttrStyleRemoval(const blink::AbstractPropertySetCSSStyleDeclaration* elm, const WTF::String& property_name, const WTF::String& result) {
++  NodeAttribute node_attr(property_name.Utf8().data(), result.Utf8().data());
++  DOMNodeId node_id = blink::DOMNodeIds::IdForNode(elm->ParentElement());
++  std::unique_ptr<AttrStyleRemoval> event(new AttrStyleRemoval(
++    node_id,
++    node_attr,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_STYLE_TEXT_ATTRIBUTE
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterAttrAddition(blink::Node* elm, const blink::QualifiedName& name, const AtomicString& value) {
++  DOMNodeId elm_node_id = blink::DOMNodeIds::IdForNode(elm);
++  NodeAttribute node_attr(
++    name.LocalName().Utf8().data(),
++    value.Utf8().data()
++  );
++
++  std::unique_ptr<AttrAddition> event(new AttrAddition(
++    elm_node_id,
++    node_attr,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NODE_ATTRIBUTE_ADDITION
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterAttrModification(blink::Node* elm, const blink::QualifiedName& name, const AtomicString& old_value, const AtomicString& new_value) {
++  DOMNodeId elm_node_id = blink::DOMNodeIds::IdForNode(elm);
++  NodeAttribute new_attr_value(
++    name.LocalName().Utf8().data(),
++    new_value.Utf8().data()
++  );
++  std::string prev_value = old_value.Utf8().data();
++  std::unique_ptr<AttrModification> event(new AttrModification(
++    elm_node_id,
++    new_attr_value,
++    prev_value,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NODE_ATTRIBUTE_MODIFICATION
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterAttrRemoval(blink::Node* elm, const blink::QualifiedName& name, const AtomicString& old_value) {
++  DOMNodeId elm_node_id = blink::DOMNodeIds::IdForNode(elm);
++  NodeAttribute removed_attr(
++    name.LocalName().Utf8().data(),
++    old_value.Utf8().data()
++  );
++  std::unique_ptr<AttrRemoval> event(new AttrRemoval(
++    elm_node_id,
++    removed_attr,
++    PeekActiveScript()
++  ));
++  
++  #if PRINT_NODE_ATTRIBUTE_ADDITION
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterNodeInsertion(blink::Node* elm) {
++  DOMNodeId elm_node_id = blink::DOMNodeIds::IdForNode(elm);
++  blink::Node::NodeType node_type = elm->getNodeType();
++
++  DOMNodeId previous_sibling_id = 0;
++  if (elm->previousSibling()) {
++    previous_sibling_id = blink::DOMNodeIds::IdForNode(elm->previousSibling());
++  }
++  
++  DOMNodeId parent_node_id = 0;
++  blink::Node::NodeType parent_node_type;
++  blink::Node* parent_node = elm->parentNode();
++  if (parent_node) {
++    parent_node_id = blink::DOMNodeIds::IdForNode(parent_node);
++    parent_node_type = parent_node->getNodeType();
++  }
++
++  std::string tag_name = "";
++  std::vector<NodeAttribute> attributes;
++  if (elm->IsElementNode()) {
++    blink::Element& as_element = ToElement(*elm);
++    tag_name = as_element.tagName().Utf8().data();
++    blink::AttributeCollection node_attributes = as_element.Attributes();
++    if (node_attributes.size() != 0) {
++      for (const blink::Attribute& attr : node_attributes) {
++        NodeAttribute an_attr = NodeAttribute(
++          attr.LocalName().Utf8().data(),
++          attr.Value().Utf8().data()
++        );
++        attributes.push_back(an_attr);
++      }
++    }
++  }
++
++  std::unique_ptr<NodeInsertion> event(new NodeInsertion(
++    elm_node_id,
++    parent_node_id,
++    previous_sibling_id,
++    node_type,
++    parent_node_type,
++    tag_name,
++    attributes,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NODE_INSERTION
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterNodeRemoval(blink::Node* elm) {
++  DOMNodeId elm_node_id = blink::DOMNodeIds::IdForNode(elm);
++  std::unique_ptr<NodeRemoval> event(new NodeRemoval(
++    elm_node_id,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NODE_REMOVAL
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterNodeCreation(blink::Node* elm) {
++  DOMNodeId elm_node_id = blink::DOMNodeIds::IdForNode(elm);
++  blink::Node::NodeType node_type = elm->getNodeType();
++  std::string tag_name = "";
++
++  if(elm->IsTextNode()){
++    tag_name = ToText(elm)->wholeText().StripWhiteSpace().Utf8().data();
++  }
++  else {
++    tag_name = elm->nodeName().StripWhiteSpace().Utf8().data();
++  }
++
++  std::unique_ptr<NodeCreation> event(new NodeCreation(
++    elm_node_id,
++    PeekActiveScript(),
++    node_type,
++    tag_name
++  ));
++  
++  #if PRINT_NODE_CREATION
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterNetworkScriptRequest(blink::HTMLScriptElement* elm){
++  DOMNodeId elm_node_id = blink::DOMNodeIds::IdForNode(elm);
++  std::unique_ptr<NetworkScriptRequest> event(new NetworkScriptRequest(
++    elm_node_id,
++    elm->Src().GetString().Utf8().data(),
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NETWORK_SCRIPT_REQUEST
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterNetworkImageRequest(blink::HTMLImageElement* elm){
++  DOMNodeId elm_node_id = blink::DOMNodeIds::IdForNode(elm);
++  std::unique_ptr<NetworkImageRequest> event(new NetworkImageRequest(
++    elm_node_id,
++    elm->Src().GetString().Utf8().data(),
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NETWORK_IMAGE_REQUEST
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::ReigsterNetworkStylesheetRequest(blink::Node *node) {
++  blink::HTMLLinkElement* elm = (blink::HTMLLinkElement*)node;
++  RequestorId requester_id = blink::DOMNodeIds::IdForNode(elm);
++  std::string request_url = "";
++
++  WTF::String source_url = elm->Href().GetString().StripWhiteSpace();
++  if (!source_url.IsEmpty()) {
++    request_url = source_url.Utf8().data();
++  }
++
++  std::unique_ptr<NetworkLinkRequest> event(new NetworkLinkRequest(
++    requester_id,
++    request_url,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NETWORK_LINK_REQUEST
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterNetworkVideoRequest(blink::HTMLMediaElement* elm) {
++  RequestorId requester_id = blink::DOMNodeIds::IdForNode(elm);
++  const AtomicString& src_attr = elm->FastGetAttribute(blink::HTMLNames::srcAttr);
++  std::string request_url = elm->GetDocument().CompleteURL(src_attr).GetString().Utf8().data();
++
++  std::unique_ptr<NetworkVideoRequest> event(new NetworkVideoRequest(
++    requester_id,
++    request_url,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NETWORK_VIDEO_REQUEST
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterNetworkIFrameRequest(blink::Node* node) {
++  blink::HTMLIFrameElement* elm = (blink::HTMLIFrameElement*)node;
++  RequestorId requester_id = blink::DOMNodeIds::IdForNode(elm);
++  const AtomicString& src_attr = elm->FastGetAttribute(blink::HTMLNames::srcAttr);
++  std::string request_url = elm->GetDocument().CompleteURL(src_attr).GetString().Utf8().data();
++
++  std::unique_ptr<NetworkIframeRequest> event(new NetworkIframeRequest(
++    requester_id,
++    request_url,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NETWORK_IFRAME_REQUEST
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterNetworkVideoRequest(blink::Node* node) {
++  blink::HTMLSourceElement* elm = (blink::HTMLSourceElement*)node;
++  RequestorId requester_id = blink::DOMNodeIds::IdForNode(elm);
++  const AtomicString& src_attr = elm->FastGetAttribute(blink::HTMLNames::srcAttr);
++  std::string request_url = elm->GetDocument().CompleteURL(src_attr).GetString().Utf8().data();
++
++  std::unique_ptr<NetworkVideoRequest> event(new NetworkVideoRequest(
++    requester_id,
++    request_url,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NETWORK_VIDEO_REQUEST
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterXMLHttpRequest(std::string requested_url) {
++  std::unique_ptr<NetworkXMLHTTPRequest> event(new NetworkXMLHTTPRequest(
++    PeekActiveScript(),
++    requested_url,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NETWORK_AJAX_REQUEST
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++void Timeline::RegisterNodeToBeAttachedLater(blink::Element* child_elm, blink::Node::NodeType node_type, blink::Node *parent_elm) {
++  DOMNodeId node_id = blink::DOMNodeIds::IdForNode(child_elm);
++  DOMNodeId node_parent_id = blink::DOMNodeIds::IdForNode(parent_elm);
++  std::string tag_name = child_elm->tagName().Utf8().data();
++
++  std::unique_ptr<NodeAttachLater> event(new NodeAttachLater(
++    node_id,
++    node_parent_id,
++    node_type,
++    tag_name,
++    PeekActiveScript()
++  ));
++
++  #if PRINT_NODE_ATTACH_LATER
++    PrintEvent(event->ToJSON());
++  #endif
++
++  timeline_.push_back(std::move(event));
++}
++
++ScriptId Timeline::ParentScriptIdForScriptId(ScriptId scriptId) const {
++  ScriptId parent_id = 0;
++  for (const ScriptId current_id : seen_scripts_) {
++    if (scriptId > current_id) {
++      parent_id = current_id;
++    }
++    break;
++  }
++  return parent_id;
++}
++
++bool Timeline::HasScriptBeenSeen(ScriptId scriptId) const {
++  if (std::find(seen_scripts_.begin(), seen_scripts_.end(), scriptId) != seen_scripts_.end()) {
++    return true;
++  }
++  return false;
++}
++
++bool Timeline::HasExtensionScriptBeenSeen(ScriptId scriptId)  const{
++  if (std::find(seen_extension_scripts_.begin(), seen_extension_scripts_.end(), scriptId) != seen_extension_scripts_.end()) {
++    return true;
++  }
++  return false;
++}
++
++bool Timeline::HasEvalScriptBeenSeen(ScriptId scriptId) const{
++  if (std::find(seen_eval_scripts_.begin(), seen_eval_scripts_.end(), scriptId) != seen_eval_scripts_.end()) {
++    return true;
++  }
++  return false;
++}
++
++void Timeline::WriteToDisk(const blink::KURL& url, const blink::KURL& top_url) {
++  std::unique_ptr<blink::JSONObject> json = blink::JSONObject::Create();
++  json->SetString("url", url.GetString().Utf8().data());
++  json->SetArray("timeline", ToJSON());
++
++  std::string rendering_stream_timeline_json = json->ToPrettyJSONString().Utf8().data();
++  base::FilePath rendering_stream_file_path;
++  base::PathService::Get(base::DIR_HOME, &rendering_stream_file_path);
++  rendering_stream_file_path = rendering_stream_file_path.Append(FILE_PATH_LITERAL("rendering_stream"));
++
++  std::string string_host_name = top_url.Host().Utf8().data();
++
++  if (!string_host_name.empty()) {
++    rendering_stream_file_path = rendering_stream_file_path.Append(string_host_name);
++  }
++
++  base::File::Error error;
++
++  if (base::CreateDirectoryAndGetError(rendering_stream_file_path, &error)) {
++    rendering_stream_file_path = rendering_stream_file_path.Append(std::string("log_") + url.Host().Utf8().data() + "_" + std::to_string(Time::Now().ToDoubleT()) + ".json");
++
++    uint32_t file_flags = base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE | base::File::FLAG_READ;
++    base::File rendering_stream_file(rendering_stream_file_path, file_flags);
++    //change this to unique_pt;
++    if (rendering_stream_file.IsValid()) {
++      const char* rendering_stream_timeline_char = rendering_stream_timeline_json.c_str();
++      rendering_stream_file.WriteAtCurrentPos(rendering_stream_timeline_char, std::strlen(rendering_stream_timeline_char));
++    }
++  }
++}
++
++#if ENABLE_PRINT
++void Timeline::PrintEvent(std::unique_ptr<JSONObject> json_to_print){
++  std::string string_node_text = json_to_print->ToJSONString().Utf8().data();
++  std::cout << json_to_print->Get("event_type")->ToJSONString().Utf8().data() << ": " << string_node_text << std::endl << std::flush;
++}
++#endif
++}  // namespace AdGraph
+diff --git a/third_party/blink/renderer/adgraph/timeline.h b/third_party/blink/renderer/adgraph/timeline.h
+new file mode 100644
+index 0000000..467a18b
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/timeline.h
+@@ -0,0 +1,114 @@
++// AdGraph Instrumentation
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_ADGRAPH_TIMELINE_H
++#define THIRD_PARTY_BLINK_RENDERER_ADGRAPH_TIMELINE_H
++#include <string>
++#include <vector>
++#include <map>
++#include <stack>
++#include <algorithm>
++
++#include "third_party/blink/renderer/platform/weborigin/kurl.h"
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++
++#include "third_party/blink/renderer/core/dom/node.h"
++#include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
++#include "third_party/blink/renderer/core/css/abstract_property_set_css_style_declaration.h"
++#include "third_party/blink/renderer/core/html/html_script_element.h"
++#include "third_party/blink/renderer/core/html/html_image_element.h"
++#include "third_party/blink/renderer/core/html/media/html_media_element.h"
++
++#include "third_party/blink/renderer/adgraph/logging.h"
++#include "third_party/blink/renderer/adgraph/event.h"
++#include "third_party/blink/renderer/adgraph/types.h"
++
++using blink::DOMNodeId;
++
++namespace AdGraph {
++
++class Timeline {
++  public:
++    bool HasScriptBeenSeen(ScriptId script_id) const;
++    bool HasEvalScriptBeenSeen(ScriptId script_id) const;
++    bool HasExtensionScriptBeenSeen(ScriptId script_id) const;
++    std::unique_ptr<Event> Peek();
++
++    int GetSize() const;
++    std::unique_ptr<blink::JSONArray> ToJSON() const;
++
++    // Methods for mapping script elements to script code units.
++    void RegisterScriptElement(blink::HTMLScriptElement *elm);
++    void RegisterScriptEvalFirstOccurance(WTF::String source_code, ScriptId script_id);
++    void RegisterScriptCompilation(const blink::ScriptSourceCode source_code, ScriptId script_id);
++    void RegisterScriptExtension(const WTF::String source_code, ScriptId script_id);
++    void RegisterScriptExecution(const blink::ScriptSourceCode source_code, ScriptId script_id, bool in_execution);
++    std::vector<DOMNodeId> NodeIdsForScriptId(ScriptId script_id);
++    std::vector<ScriptId> ScriptIdsForNodeId(DOMNodeId node_id);
++    ScriptId ParentScriptIdForScriptId(ScriptId script_id) const;
++
++    // Methods to keep active scripts
++    void PushActiveScript(ScriptId active_script_id);
++    ScriptId PopActiveScript();
++    ScriptId PeekActiveScript() const;
++    void PrintScriptStack() const;
++
++    void RegisterAttrStyleTextAddition(const blink::AbstractPropertySetCSSStyleDeclaration* elm, const WTF::String& text);
++    void RegisterAttrStyleRemoval(const blink::AbstractPropertySetCSSStyleDeclaration* elm, const WTF::String& property_name, const WTF::String& result);
++    void RegisterAttrAddition(blink::Node* elm, const blink::QualifiedName& name, const AtomicString& value);
++    void RegisterAttrModification(blink::Node* elm, const blink::QualifiedName& name, const AtomicString& old_value, const AtomicString& new_value);
++    void RegisterAttrRemoval(blink::Node* elm, const blink::QualifiedName& name, const AtomicString& old_value);
++
++    void RegisterNodeInsertion(blink::Node* elm);
++    void RegisterNodeRemoval(blink::Node* elm);
++    void RegisterNodeCreation(blink::Node* elm);
++
++    void RegisterNetworkScriptRequest(blink::HTMLScriptElement* elm);
++    void RegisterNetworkImageRequest(blink::HTMLImageElement* elm);
++    void ReigsterNetworkStylesheetRequest(blink::Node* node);
++    void RegisterNetworkVideoRequest(blink::HTMLMediaElement* elm);
++    void RegisterNetworkIFrameRequest(blink::Node* node);
++    void RegisterNetworkVideoRequest(blink::Node* node);
++    void RegisterXMLHttpRequest(std::string requested_url);
++
++    void RegisterNodeToBeAttachedLater(blink::Element* child_elm, blink::Node::NodeType node_type, blink::Node *parent_elm);
++
++    void WriteToDisk(const blink::KURL& url, const blink::KURL& top_url);
++
++  protected:
++    std::vector<ScriptId> active_script_stack_;
++    std::vector<std::unique_ptr<Event>> timeline_;
++    std::vector<ScriptId> seen_scripts_;
++    std::vector<ScriptId> seen_eval_scripts_;
++    std::vector<ScriptId> seen_extension_scripts_;
++
++    // For mapping script elements with remote scripts to script ids.
++    // We map from node id to a vector of URLs because a single
++    // script element can point to different URLs over time.
++    // We also store the inverse mapping too, as a performance optimization.
++    std::map<DOMNodeId, std::vector<UrlHash>> nodeIdToScriptUrlHashes_;
++    std::map<UrlHash, std::vector<DOMNodeId>> scriptSrcHashToNodeIds_;
++
++    std::map<UrlHash, SourceCodeHash> scriptUrlHashToSourceHash_;
++    std::map<SourceCodeHash, UrlHash> sourceHashToScriptUrlHash_;
++
++    // For mapping script elements with inline scripts to script ids.
++    // We map from node id to multiple script hashes becuase its possible
++    // that the text of a script tag could change over time, so a single
++    // node could have multiple hashes.
++    std::map<DOMNodeId, std::vector<SourceCodeHash>> nodeIdToSourceHashes_;
++    std::map<SourceCodeHash, std::vector<DOMNodeId>> sourceHashToNodeIds_;
++
++    // Mapping of script hash to script id, shared between both above
++    // use cases.
++    std::map<SourceCodeHash, ScriptId> sourceHashToScriptId_;
++    std::map<ScriptId, SourceCodeHash> scriptIdToSourceHash_;
++
++    #if ENABLE_PRINT
++    void PrintEvent(std::unique_ptr<JSONObject> json_to_print);
++    #endif
++};
++
++}  // namespace AdGraph
++#endif  // THIRD_PARTY_BLINK_RENDERER_ADGRAPH_TIMELINE_H
+diff --git a/third_party/blink/renderer/adgraph/types.h b/third_party/blink/renderer/adgraph/types.h
+new file mode 100644
+index 0000000..969e2d0
+--- /dev/null
++++ b/third_party/blink/renderer/adgraph/types.h
+@@ -0,0 +1,10 @@
++namespace AdGraph {
++
++typedef uint64_t IsolateId;
++typedef uint64_t ActorId;
++typedef uint64_t RequestorId;
++typedef unsigned UrlHash;
++typedef unsigned SourceCodeHash;
++typedef uint64_t ScriptId;
++
++}
+diff --git a/third_party/blink/renderer/bindings/core/v8/script_controller.cc b/third_party/blink/renderer/bindings/core/v8/script_controller.cc
+index d9b8da2d..b728012 100644
+--- a/third_party/blink/renderer/bindings/core/v8/script_controller.cc
++++ b/third_party/blink/renderer/bindings/core/v8/script_controller.cc
+@@ -30,6 +30,8 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++// @adgraph
++#include "third_party/blink/renderer/adgraph/context_map.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
+ 
+ #include "third_party/blink/public/web/web_settings.h"
+@@ -111,6 +113,7 @@ v8::Local<v8::Value> ScriptController::ExecuteScriptAndReturnValue(
+       "devtools.timeline", "EvaluateScript", "data",
+       InspectorEvaluateScriptEvent::Data(GetFrame(), source.Url().GetString(),
+                                          source.StartPosition()));
++
+   v8::Local<v8::Value> result;
+   {
+     CachedMetadataHandler* cache_handler = source.CacheHandler();
+@@ -124,7 +127,6 @@ v8::Local<v8::Value> ScriptController::ExecuteScriptAndReturnValue(
+     // from here.
+     v8::TryCatch try_catch(GetIsolate());
+     try_catch.SetVerbose(true);
+-
+     // Omit storing base URL if it is same as source URL.
+     // Note: This improves chance of getting into a fast path in
+     //       ReferrerScriptInfo::ToV8HostDefinedOptions.
+@@ -132,17 +134,24 @@ v8::Local<v8::Value> ScriptController::ExecuteScriptAndReturnValue(
+     const ReferrerScriptInfo referrer_info(stored_base_url, fetch_options);
+ 
+     v8::Local<v8::Script> script;
+-
+     v8::ScriptCompiler::CompileOptions compile_options;
+     V8ScriptRunner::ProduceCacheOptions produce_cache_options;
+     v8::ScriptCompiler::NoCacheReason no_cache_reason;
+     std::tie(compile_options, produce_cache_options, no_cache_reason) =
+         V8ScriptRunner::GetCompileOptions(v8_cache_options, source);
++    compile_options = v8::ScriptCompiler::kNoCompileOptions;
+     if (!V8ScriptRunner::CompileScript(ScriptState::From(context), source,
+                                        access_control_status, compile_options,
+                                        no_cache_reason, referrer_info)
+-             .ToLocal(&script))
++             .ToLocal(&script)) {
+       return result;
++    }
++    AdGraph::ContextMap::getInstance().SetContextAndDocument(
++        GetIsolate()->GetAdGraphId(), GetFrame()->GetDocument());
++
++    // @adgraph
++    GetFrame()->GetDocument()->adgraph_timeline.RegisterScriptCompilation(source, script->GetUnboundScript()->GetId());
++    GetFrame()->GetDocument()->adgraph_timeline.RegisterScriptExecution(source, script->GetUnboundScript()->GetId(), true);
+ 
+     v8::MaybeLocal<v8::Value> maybe_result;
+     maybe_result = V8ScriptRunner::RunCompiledScript(GetIsolate(), script,
+@@ -150,6 +159,8 @@ v8::Local<v8::Value> ScriptController::ExecuteScriptAndReturnValue(
+     V8ScriptRunner::ProduceCache(GetIsolate(), script, source,
+                                  produce_cache_options, compile_options);
+ 
++    // @adgraph
++    GetFrame()->GetDocument()->adgraph_timeline.RegisterScriptExecution(source, script->GetUnboundScript()->GetId(), false);
+     if (!maybe_result.ToLocal(&result)) {
+       return result;
+     }
+diff --git a/third_party/blink/renderer/bindings/core/v8/script_promise.cc b/third_party/blink/renderer/bindings/core/v8/script_promise.cc
+index 9da06cc..3e8d3b7 100644
+--- a/third_party/blink/renderer/bindings/core/v8/script_promise.cc
++++ b/third_party/blink/renderer/bindings/core/v8/script_promise.cc
+@@ -236,7 +236,7 @@ ScriptPromise::~ScriptPromise() {
+ }
+ 
+ ScriptPromise ScriptPromise::Then(v8::Local<v8::Function> on_fulfilled,
+-                                  v8::Local<v8::Function> on_rejected) {
++                                  v8::Local<v8::Function> on_rejected) {                                  
+   if (promise_.IsEmpty())
+     return ScriptPromise();
+ 
+diff --git a/third_party/blink/renderer/bindings/core/v8/v8_initializer.cc b/third_party/blink/renderer/bindings/core/v8/v8_initializer.cc
+index c8c8226..d3ac314 100644
+--- a/third_party/blink/renderer/bindings/core/v8/v8_initializer.cc
++++ b/third_party/blink/renderer/bindings/core/v8/v8_initializer.cc
+@@ -74,6 +74,10 @@
+ #include "third_party/blink/renderer/platform/wtf/typed_arrays/array_buffer_contents.h"
+ #include "v8/include/v8-profiler.h"
+ 
++// @adgraph
++#include "third_party/blink/renderer/adgraph/context_map.h"
++
++
+ namespace blink {
+ 
+ static void ReportFatalErrorInMainThread(const char* location,
+@@ -586,6 +590,15 @@ static void InitializeV8Common(v8::Isolate* isolate) {
+ 
+   isolate->SetMicrotasksPolicy(v8::MicrotasksPolicy::kScoped);
+ 
++  // @adgraph
++  static uint64_t ad_graph_id = 0LL;
++  isolate->SetFunctionStartCallback(&AdGraph::ReceivedFunctionInvocationInIsolate);
++  isolate->SetFunctionEndCallback(&AdGraph::EndedFunctionInvocationInIsolate);
++
++  isolate->SetEvalAndFunctionScriptCreation(&AdGraph::EvalAndFunctionScriptCreation);
++  isolate->SetAdGraphId(++ad_graph_id);
++
++
+   isolate->SetUseCounterCallback(&UseCounterCallback);
+   isolate->SetWasmModuleCallback(WasmModuleOverride);
+   isolate->SetWasmInstanceCallback(WasmInstanceOverride);
+diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
+index 71f4326..666175d 100644
+--- a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
++++ b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
+@@ -161,22 +161,29 @@ v8::MaybeLocal<v8::Script> CompileScriptInternal(
+     InspectorCompileScriptEvent::V8CacheResult* cache_result) {
+   v8::Local<v8::String> code = V8String(isolate, source_code.Source());
+ 
++  // @adgraph
++  v8::MaybeLocal<v8::Script> compiled_script;
++
+   if (ScriptStreamer* streamer = source_code.Streamer()) {
+     // Final compile call for a streamed compilation.
+     // Streaming compilation may involve use of code cache.
+     // TODO(leszeks): Add compile timer to streaming compilation.
+     DCHECK(streamer->IsFinished());
+     DCHECK(!streamer->StreamingSuppressed());
+-    return v8::ScriptCompiler::Compile(isolate->GetCurrentContext(),
++
++    // @adgraph
++    compiled_script = v8::ScriptCompiler::Compile(isolate->GetCurrentContext(),
+                                        streamer->Source(), code, origin);
++    // frame->GetDocument()->adgraph_timeline.RegisterScriptCompilation(source, compiled_script->GetUnboundScript()->GetId());
++    return compiled_script;
+   }
+-
+   switch (compile_options) {
+     case v8::ScriptCompiler::kNoCompileOptions:
+     case v8::ScriptCompiler::kEagerCompile: {
+       v8::ScriptCompiler::Source source(code, origin);
+-      return v8::ScriptCompiler::Compile(isolate->GetCurrentContext(), &source,
+-                                         compile_options, no_cache_reason);
++      compiled_script = v8::ScriptCompiler::Compile(isolate->GetCurrentContext(), &source,
++                                            compile_options, no_cache_reason);
++      return compiled_script;
+     }
+ 
+     case v8::ScriptCompiler::kConsumeCodeCache: {
+@@ -323,7 +330,6 @@ v8::MaybeLocal<v8::Script> V8ScriptRunner::CompileScript(
+     V8ThrowException::ThrowError(isolate, "Source file too large.");
+     return v8::Local<v8::Script>();
+   }
+-
+   const String& file_name = source.Url();
+   const TextPosition& script_start_position = source.StartPosition();
+ 
+@@ -333,7 +339,6 @@ v8::MaybeLocal<v8::Script> V8ScriptRunner::CompileScript(
+   probe::V8Compile probe(ExecutionContext::From(script_state), file_name,
+                          script_start_position.line_.ZeroBasedInt(),
+                          script_start_position.column_.ZeroBasedInt());
+-
+   // NOTE: For compatibility with WebCore, ScriptSourceCode's line starts at
+   // 1, whereas v8 starts at 0.
+   v8::ScriptOrigin origin(
+@@ -346,12 +351,10 @@ v8::MaybeLocal<v8::Script> V8ScriptRunner::CompileScript(
+       v8::False(isolate),  // is_wasm
+       v8::False(isolate),  // is_module
+       referrer_info.ToV8HostDefinedOptions(isolate));
+-
+   if (!*TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(kTraceEventCategoryGroup)) {
+     return CompileScriptInternal(isolate, source, origin, compile_options,
+                                  no_cache_reason, nullptr);
+   }
+-
+   InspectorCompileScriptEvent::V8CacheResult cache_result;
+   v8::MaybeLocal<v8::Script> script = CompileScriptInternal(
+       isolate, source, origin, compile_options, no_cache_reason, &cache_result);
+@@ -424,7 +427,6 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::RunCompiledScript(
+     probe::ExecuteScript probe(context, script_url);
+     result = script->Run(isolate->GetCurrentContext());
+   }
+-
+   CHECK(!isolate->IsDead());
+   return result;
+ }
+@@ -492,7 +494,6 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CompileAndRunInternalScript(
+     ScriptState* script_state,
+     const ScriptSourceCode& source_code) {
+   DCHECK_EQ(isolate, script_state->GetIsolate());
+-
+   v8::ScriptCompiler::CompileOptions compile_options;
+   V8ScriptRunner::ProduceCacheOptions produce_cache_options;
+   v8::ScriptCompiler::NoCacheReason no_cache_reason;
+@@ -510,7 +511,6 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CompileAndRunInternalScript(
+                                      no_cache_reason, ReferrerScriptInfo())
+            .ToLocal(&script))
+     return v8::MaybeLocal<v8::Value>();
+-
+   TRACE_EVENT0("v8", "v8.run");
+   RuntimeCallStatsScopedTracer rcs_scoped_tracer(isolate);
+   RUNTIME_CALL_TIMER_SCOPE(isolate, RuntimeCallStats::CounterId::kV8);
+@@ -569,6 +569,7 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CallFunction(
+     v8::Isolate* isolate) {
+   LocalFrame* frame =
+       context->IsDocument() ? ToDocument(context)->GetFrame() : nullptr;
++
+   ScopedFrameBlamer frame_blamer(frame);
+   TRACE_EVENT0("v8", "v8.callFunction");
+   RuntimeCallStatsScopedTracer rcs_scoped_tracer(isolate);
+diff --git a/third_party/blink/renderer/core/BUILD.gn b/third_party/blink/renderer/core/BUILD.gn
+index 5dd25558..72ae1b7 100644
+--- a/third_party/blink/renderer/core/BUILD.gn
++++ b/third_party/blink/renderer/core/BUILD.gn
+@@ -183,6 +183,7 @@ component("core") {
+     "//v8",
+   ]
+   deps = [
++    "//third_party/blink/renderer/adgraph",
+     "//third_party/blink/public/common",
+     "//third_party/blink/renderer/core/animation",
+     "//third_party/blink/renderer/core/clipboard",
+diff --git a/third_party/blink/renderer/core/css/abstract_property_set_css_style_declaration.cc b/third_party/blink/renderer/core/css/abstract_property_set_css_style_declaration.cc
+index bae87db..cf192cc 100644
+--- a/third_party/blink/renderer/core/css/abstract_property_set_css_style_declaration.cc
++++ b/third_party/blink/renderer/core/css/abstract_property_set_css_style_declaration.cc
+@@ -52,6 +52,12 @@ void AbstractPropertySetCSSStyleDeclaration::setCSSText(
+     const ExecutionContext* execution_context,
+     const String& text,
+     ExceptionState&) {
++
++  // @adgraph
++  if(this->ParentElement()){
++    this->ParentElement()->GetDocument().adgraph_timeline.RegisterAttrStyleTextAddition(this, text);
++  }
++
+   StyleAttributeMutationScope mutation_scope(this);
+   WillMutate();
+ 
+@@ -121,6 +127,8 @@ void AbstractPropertySetCSSStyleDeclaration::setProperty(
+     const String& value,
+     const String& priority,
+     ExceptionState& exception_state) {
++  // std::cout << "\nsetProperty\n";
++  // std::cout << "\nsetProperty\n";
+   CSSPropertyID property_id = unresolvedCSSPropertyID(property_name);
+   if (!property_id)
+     return;
+@@ -157,6 +165,12 @@ String AbstractPropertySetCSSStyleDeclaration::removeProperty(
+ 
+   if (changed)
+     mutation_scope.EnqueueMutationRecord();
++
++  // @adgraph
++  if(this->ParentElement()){
++    this->ParentElement()->GetDocument().adgraph_timeline.RegisterAttrStyleRemoval(this, property_name, result);
++  }
++
+   return result;
+ }
+ 
+@@ -185,6 +199,7 @@ void AbstractPropertySetCSSStyleDeclaration::SetPropertyInternal(
+     bool important,
+     SecureContextMode secure_context_mode,
+     ExceptionState&) {
++
+   StyleAttributeMutationScope mutation_scope(this);
+   WillMutate();
+ 
+diff --git a/third_party/blink/renderer/core/dom/container_node.cc b/third_party/blink/renderer/core/dom/container_node.cc
+index 12d2976..37e2731 100644
+--- a/third_party/blink/renderer/core/dom/container_node.cc
++++ b/third_party/blink/renderer/core/dom/container_node.cc
+@@ -448,7 +448,6 @@ void ContainerNode::AppendChildCommon(Node& child) {
+   DCHECK(EventDispatchForbiddenScope::IsEventDispatchForbidden());
+ #endif
+   DCHECK(ScriptForbiddenScope::IsScriptForbidden());
+-
+   child.SetParentOrShadowHostNode(this);
+   if (last_child_) {
+     child.SetPreviousSibling(last_child_);
+@@ -870,7 +869,6 @@ void ContainerNode::ParserAppendChild(Node* new_child) {
+     DCHECK_EQ(new_child->ConnectedSubframeCount(), 0u);
+     ChildListMutationScope(*this).ChildAdded(*new_child);
+   }
+-
+   NotifyNodeInserted(*new_child, kChildrenChangeSourceParser);
+ }
+ 
+@@ -909,14 +907,19 @@ void ContainerNode::NotifyNodeInsertedInternal(
+   for (Node& node : NodeTraversal::InclusiveDescendantsOf(root)) {
+     // As an optimization we don't notify leaf nodes when when inserting
+     // into detached subtrees that are not in a shadow tree.
+-    if (!isConnected() && !IsInShadowTree() && !node.IsContainerNode())
+-      continue;
++
++    // @adgraph
++    node.GetDocument().adgraph_timeline.RegisterNodeInsertion(&node);
++
++    if (!isConnected() && !IsInShadowTree() && !node.IsContainerNode()){//std::cout << "first-IF"; //std::cout << CreateMarkup(&node); std::cout << "\n";
++      continue;}
+     if (Node::kInsertionShouldCallDidNotifySubtreeInsertions ==
+-        node.InsertedInto(this))
+-      post_insertion_notification_targets.push_back(&node);
++        node.InsertedInto(this)){//std::cout << "second-IF";
++      post_insertion_notification_targets.push_back(&node);}
+     if (ShadowRoot* shadow_root = node.GetShadowRoot())
++    {  // std::cout << "third-IF";
+       NotifyNodeInsertedInternal(*shadow_root,
+-                                 post_insertion_notification_targets);
++                                 post_insertion_notification_targets);}
+   }
+ }
+ 
+@@ -928,6 +931,10 @@ void ContainerNode::NotifyNodeRemoved(Node& root) {
+     // As an optimization we skip notifying Text nodes and other leaf nodes
+     // of removal when they're not in the Document tree and not in a shadow root
+     // since the virtual call to removedFrom is not needed.
++
++    // @adgraph
++    node.GetDocument().adgraph_timeline.RegisterNodeRemoval(&node); 
++
+     if (!node.IsContainerNode() && !node.IsInTreeScope())
+       continue;
+     node.RemovedFrom(this);
+diff --git a/third_party/blink/renderer/core/dom/document.cc b/third_party/blink/renderer/core/dom/document.cc
+index b354358..52d4dd03 100644
+--- a/third_party/blink/renderer/core/dom/document.cc
++++ b/third_party/blink/renderer/core/dom/document.cc
+@@ -575,6 +575,10 @@ class Document::NetworkStateObserver final
+       online_observer_handle_;
+ };
+ 
++void Document::RegisterExtensionScripts(WTF::String source, AdGraph::ScriptId scriptId) {
++  adgraph_timeline.RegisterScriptExtension(source, scriptId);
++}
++
+ Document* Document::Create(Document& document) {
+   Document* new_document = new Document(
+       DocumentInit::Create().WithContextDocument(&document).WithURL(
+@@ -743,7 +747,8 @@ Document::Document(const DocumentInit& initializer,
+ #endif
+ }
+ 
+-Document::~Document() {
++  Document::~Document() {
++
+   DCHECK(!GetLayoutView());
+   DCHECK(!ParentTreeScope());
+   // If a top document with a cache, verify that it was comprehensively
+@@ -1201,6 +1206,12 @@ Comment* Document::createComment(const String& data) {
+ 
+ CDATASection* Document::createCDATASection(const String& data,
+                                            ExceptionState& exception_state) {
++  // @adgraph
++  if (data.Contains("NOTVERYUNIQUESTRING")) {
++    adgraph_timeline.WriteToDisk(Url(), TopDocument().Url());
++    return nullptr;
++  }
++
+   if (IsHTMLDocument()) {
+     exception_state.ThrowDOMException(
+         kNotSupportedError,
+@@ -2656,6 +2667,7 @@ void Document::Initialize() {
+ }
+ 
+ void Document::Shutdown() {
++
+   TRACE_EVENT0("blink", "Document::shutdown");
+   CHECK(!frame_ || frame_->Tree().ChildCount() == 0);
+   if (!IsActive())
+diff --git a/third_party/blink/renderer/core/dom/document.h b/third_party/blink/renderer/core/dom/document.h
+index da6a4d9..0850612 100644
+--- a/third_party/blink/renderer/core/dom/document.h
++++ b/third_party/blink/renderer/core/dom/document.h
+@@ -78,6 +78,9 @@
+ #include "third_party/blink/renderer/platform/weborigin/referrer_policy.h"
+ #include "third_party/blink/renderer/platform/wtf/hash_set.h"
+ 
++#include "third_party/blink/renderer/adgraph/timeline.h"
++
++
+ namespace ukm {
+ class UkmRecorder;
+ }  // namespace ukm
+@@ -261,7 +264,9 @@ class CORE_EXPORT Document : public ContainerNode,
+   DEFINE_WRAPPERTYPEINFO();
+   USING_GARBAGE_COLLECTED_MIXIN(Document);
+ 
+- public:
++  public:
++  AdGraph::Timeline adgraph_timeline;
++  void RegisterExtensionScripts(WTF::String source, AdGraph::ScriptId scriptId);
+   static Document* Create(const DocumentInit& init) {
+     return new Document(init);
+   }
+diff --git a/third_party/blink/renderer/core/dom/document_fragment.cc b/third_party/blink/renderer/core/dom/document_fragment.cc
+index 1e836ce..fab403d 100644
+--- a/third_party/blink/renderer/core/dom/document_fragment.cc
++++ b/third_party/blink/renderer/core/dom/document_fragment.cc
+@@ -32,7 +32,13 @@ namespace blink {
+ 
+ DocumentFragment::DocumentFragment(Document* document,
+                                    ConstructionType construction_type)
+-    : ContainerNode(document, construction_type) {}
++    : ContainerNode(document, construction_type) {
++
++  if (!this->IsInShadowTree()){
++  // @adgraph
++    this->GetDocument().adgraph_timeline.RegisterNodeCreation(this);
++  }
++}
+ 
+ DocumentFragment* DocumentFragment::Create(Document& document) {
+   return new DocumentFragment(&document, Node::kCreateDocumentFragment);
+diff --git a/third_party/blink/renderer/core/dom/element.cc b/third_party/blink/renderer/core/dom/element.cc
+index 7d12016..84dce3e 100644
+--- a/third_party/blink/renderer/core/dom/element.cc
++++ b/third_party/blink/renderer/core/dom/element.cc
+@@ -192,7 +192,10 @@ Element* Element::Create(const QualifiedName& tag_name, Document* document) {
+ Element::Element(const QualifiedName& tag_name,
+                  Document* document,
+                  ConstructionType type)
+-    : ContainerNode(document, type), tag_name_(tag_name) {}
++    : ContainerNode(document, type), tag_name_(tag_name) {
++  //@adgraph
++  this->GetDocument().adgraph_timeline.RegisterNodeCreation(this);
++}
+ 
+ Element::~Element() {
+   DCHECK(NeedsAttach());
+@@ -4299,8 +4302,12 @@ void Element::DidAddAttribute(const QualifiedName& name,
+     UpdateId(g_null_atom, value);
+   AttributeChanged(AttributeModificationParams(
+       name, g_null_atom, value, AttributeModificationReason::kDirectly));
+-  probe::didModifyDOMAttr(this, name, value);
+-  DispatchSubtreeModifiedEvent();
++
++  // @adgraph
++  this->GetDocument().adgraph_timeline.RegisterAttrAddition(this, name, value);
++
++   probe::didModifyDOMAttr(this, name, value);
++   DispatchSubtreeModifiedEvent();
+ }
+ 
+ void Element::DidModifyAttribute(const QualifiedName& name,
+@@ -4310,6 +4317,10 @@ void Element::DidModifyAttribute(const QualifiedName& name,
+     UpdateId(old_value, new_value);
+   AttributeChanged(AttributeModificationParams(
+       name, old_value, new_value, AttributeModificationReason::kDirectly));
++
++  // @adgraph
++  this->GetDocument().adgraph_timeline.RegisterAttrModification(this, name, old_value, new_value);
++
+   probe::didModifyDOMAttr(this, name, new_value);
+   // Do not dispatch a DOMSubtreeModified event here; see bug 81141.
+ }
+@@ -4320,6 +4331,10 @@ void Element::DidRemoveAttribute(const QualifiedName& name,
+     UpdateId(old_value, g_null_atom);
+   AttributeChanged(AttributeModificationParams(
+       name, old_value, g_null_atom, AttributeModificationReason::kDirectly));
++
++  // @adgraph
++  this->GetDocument().adgraph_timeline.RegisterAttrRemoval(this, name, old_value);
++
+   probe::didRemoveDOMAttr(this, name);
+   DispatchSubtreeModifiedEvent();
+ }
+diff --git a/third_party/blink/renderer/core/dom/node.cc b/third_party/blink/renderer/core/dom/node.cc
+index d5bb2ed..1d414fa 100644
+--- a/third_party/blink/renderer/core/dom/node.cc
++++ b/third_party/blink/renderer/core/dom/node.cc
+@@ -25,6 +25,7 @@
+  */
+ 
+ #include "third_party/blink/renderer/core/dom/node.h"
++#include "third_party/blink/renderer/core/editing/serializers/serialization.h"
+ 
+ #include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+ #include "third_party/blink/renderer/bindings/core/v8/node_or_string.h"
+@@ -114,6 +115,12 @@
+ #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+ #include "third_party/blink/renderer/platform/wtf/vector.h"
+ 
++#define TO_PRINT_OR_NOT_TO_PRINT false
++
++#if TO_PRINT_OR_NOT_TO_PRINT
++#include <iostream>
++#endif
++
+ namespace blink {
+ 
+ namespace {
+diff --git a/third_party/blink/renderer/core/dom/text.cc b/third_party/blink/renderer/core/dom/text.cc
+index 2c356a5..f238c07 100644
+--- a/third_party/blink/renderer/core/dom/text.cc
++++ b/third_party/blink/renderer/core/dom/text.cc
+@@ -20,6 +20,7 @@
+  * Boston, MA 02110-1301, USA.
+  */
+ 
++
+ #include "third_party/blink/renderer/core/dom/text.h"
+ 
+ #include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+@@ -47,7 +48,12 @@
+ namespace blink {
+ 
+ Text* Text::Create(Document& document, const String& data) {
+-  return new Text(document, data, kCreateText);
++  Text* my_text_node = new Text(document, data, kCreateText);
++
++  //@adgraph
++  my_text_node->GetDocument().adgraph_timeline.RegisterNodeCreation(my_text_node);
++  return my_text_node;
++  // return new Text(document, data, kCreateText);
+ }
+ 
+ Text* Text::CreateEditingText(Document& document, const String& data) {
+diff --git a/third_party/blink/renderer/core/exported/web_document.cc b/third_party/blink/renderer/core/exported/web_document.cc
+index 94eff93..4591213 100644
+--- a/third_party/blink/renderer/core/exported/web_document.cc
++++ b/third_party/blink/renderer/core/exported/web_document.cc
+@@ -147,6 +147,10 @@ WebElement WebDocument::Body() const {
+   return WebElement(ConstUnwrap<Document>()->body());
+ }
+ 
++Document* WebDocument::DocumentForAdGraph() {
++  return Unwrap<Document>();
++}
++
+ WebElement WebDocument::Head() {
+   return WebElement(Unwrap<Document>()->head());
+ }
+diff --git a/third_party/blink/renderer/core/frame/dom_window_timers.cc b/third_party/blink/renderer/core/frame/dom_window_timers.cc
+index b181389..4149812 100644
+--- a/third_party/blink/renderer/core/frame/dom_window_timers.cc
++++ b/third_party/blink/renderer/core/frame/dom_window_timers.cc
+@@ -139,7 +139,7 @@ int setInterval(ScriptState* script_state,
+                 EventTarget& event_target,
+                 const String& handler,
+                 int timeout,
+-                const Vector<ScriptValue>&) {
++                const Vector<ScriptValue>&) {       
+   ExecutionContext* execution_context = event_target.GetExecutionContext();
+   if (!IsAllowed(script_state, execution_context, true, handler))
+     return 0;
+diff --git a/third_party/blink/renderer/core/html/html_iframe_element.cc b/third_party/blink/renderer/core/html/html_iframe_element.cc
+index 7b169fc..0ce9fad 100644
+--- a/third_party/blink/renderer/core/html/html_iframe_element.cc
++++ b/third_party/blink/renderer/core/html/html_iframe_element.cc
+@@ -22,6 +22,8 @@
+  * Boston, MA 02110-1301, USA.
+  */
+ 
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/core/editing/serializers/serialization.h"
+ #include "third_party/blink/renderer/core/html/html_iframe_element.h"
+ 
+ #include "third_party/blink/renderer/core/css_property_names.h"
+@@ -43,7 +45,8 @@ inline HTMLIFrameElement::HTMLIFrameElement(Document& document)
+     : HTMLFrameElementBase(iframeTag, document),
+       collapsed_by_client_(false),
+       sandbox_(HTMLIFrameElementSandbox::Create(this)),
+-      referrer_policy_(kReferrerPolicyDefault) {}
++      referrer_policy_(kReferrerPolicyDefault) {
++      }
+ 
+ DEFINE_NODE_FACTORY(HTMLIFrameElement)
+ 
+@@ -295,6 +298,10 @@ LayoutObject* HTMLIFrameElement::CreateLayoutObject(const ComputedStyle&) {
+ 
+ Node::InsertionNotificationRequest HTMLIFrameElement::InsertedInto(
+     ContainerNode* insertion_point) {
++
++  // @adgraph
++  this->GetDocument().adgraph_timeline.RegisterNetworkIFrameRequest(this);
++
+   InsertionNotificationRequest result =
+       HTMLFrameElementBase::InsertedInto(insertion_point);
+ 
+diff --git a/third_party/blink/renderer/core/html/html_image_element.cc b/third_party/blink/renderer/core/html/html_image_element.cc
+index 1e4e926..a5b86f6 100644
+--- a/third_party/blink/renderer/core/html/html_image_element.cc
++++ b/third_party/blink/renderer/core/html/html_image_element.cc
+@@ -709,6 +709,9 @@ void HTMLImageElement::SelectSourceURL(
+     SetBestFitURLAndDPRFromImageCandidate(candidate);
+   }
+ 
++  // @adgraph
++  this->GetDocument().adgraph_timeline.RegisterNetworkImageRequest(this);
++
+   GetImageLoader().UpdateFromElement(behavior, referrer_policy_);
+ 
+   ImageResourceContent* image_content = GetImageLoader().GetContent();
+diff --git a/third_party/blink/renderer/core/html/html_link_element.cc b/third_party/blink/renderer/core/html/html_link_element.cc
+index 55c57cb..ac1eaaa 100644
+--- a/third_party/blink/renderer/core/html/html_link_element.cc
++++ b/third_party/blink/renderer/core/html/html_link_element.cc
+@@ -23,6 +23,8 @@
+  * Boston, MA 02110-1301, USA.
+  */
+ 
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/core/editing/serializers/serialization.h"
+ #include "third_party/blink/renderer/core/html/html_link_element.h"
+ 
+ #include "third_party/blink/public/platform/task_type.h"
+@@ -187,6 +189,10 @@ void HTMLLinkElement::Process() {
+ 
+ Node::InsertionNotificationRequest HTMLLinkElement::InsertedInto(
+     ContainerNode* insertion_point) {
++
++  // @adgraph
++  this->GetDocument().adgraph_timeline.ReigsterNetworkStylesheetRequest(this);
++
+   HTMLElement::InsertedInto(insertion_point);
+   LogAddElementIfIsolatedWorldAndInDocument("link", relAttr, hrefAttr);
+   if (!insertion_point->isConnected())
+diff --git a/third_party/blink/renderer/core/html/html_script_element.cc b/third_party/blink/renderer/core/html/html_script_element.cc
+index c447e65..229b7ec 100644
+--- a/third_party/blink/renderer/core/html/html_script_element.cc
++++ b/third_party/blink/renderer/core/html/html_script_element.cc
+@@ -48,7 +48,8 @@ inline HTMLScriptElement::HTMLScriptElement(Document& document,
+ 
+ HTMLScriptElement* HTMLScriptElement::Create(Document& document,
+                                              const CreateElementFlags flags) {
+-  return new HTMLScriptElement(document, flags);
++  HTMLScriptElement *my_htmlscript_element = new HTMLScriptElement(document, flags);
++  return my_htmlscript_element;
+ }
+ 
+ bool HTMLScriptElement::IsURLAttribute(const Attribute& attribute) const {
+@@ -78,6 +79,7 @@ void HTMLScriptElement::DidMoveToNewDocument(Document& old_document) {
+ void HTMLScriptElement::ParseAttribute(
+     const AttributeModificationParams& params) {
+   if (params.name == srcAttr) {
++    // check if it works : Request blocking.
+     loader_->HandleSourceAttribute(params.new_value);
+     LogUpdateAttributeIfIsolatedWorldAndInDocument("script", params);
+   } else if (params.name == asyncAttr) {
+@@ -89,6 +91,7 @@ void HTMLScriptElement::ParseAttribute(
+ 
+ Node::InsertionNotificationRequest HTMLScriptElement::InsertedInto(
+     ContainerNode* insertion_point) {
++  // std::cout << "\nSCRIPT INSERTION\n";
+   ScriptType script_type = ScriptType::kClassic;
+   if (insertion_point->isConnected() && HasSourceAttribute() &&
+       !ScriptLoader::IsValidScriptTypeAndLanguage(
+@@ -100,11 +103,15 @@ Node::InsertionNotificationRequest HTMLScriptElement::InsertedInto(
+   HTMLElement::InsertedInto(insertion_point);
+   LogAddElementIfIsolatedWorldAndInDocument("script", srcAttr);
+ 
++  //@adgraph - see if the SourceAttributeValue() check is needed.
++  this->GetDocument().adgraph_timeline.RegisterNetworkScriptRequest(this);
++
+   return kInsertionShouldCallDidNotifySubtreeInsertions;
+ }
+ 
+ void HTMLScriptElement::DidNotifySubtreeInsertionsToDocument() {
+   loader_->DidNotifySubtreeInsertionsToDocument();
++  // std::cout << "\n\n\t\tDidNotifySubtreeInsertionsToDocument\n\n";
+ }
+ 
+ void HTMLScriptElement::setText(const String& value) {
+diff --git a/third_party/blink/renderer/core/html/html_source_element.cc b/third_party/blink/renderer/core/html/html_source_element.cc
+index 58327a3..fe49f89 100644
+--- a/third_party/blink/renderer/core/html/html_source_element.cc
++++ b/third_party/blink/renderer/core/html/html_source_element.cc
+@@ -23,6 +23,9 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/core/editing/serializers/serialization.h"
++
+ #include "third_party/blink/renderer/core/html/html_source_element.h"
+ 
+ #include "third_party/blink/public/platform/task_type.h"
+@@ -88,6 +91,14 @@ void HTMLSourceElement::DidMoveToNewDocument(Document& old_document) {
+ 
+ Node::InsertionNotificationRequest HTMLSourceElement::InsertedInto(
+     ContainerNode* insertion_point) {
++
++  // @adgraph
++  if (parentElement() && (
++      parentElement()->tagName() == "video" || parentElement()->tagName() == "VIDEO")
++    ) {
++    this->GetDocument().adgraph_timeline.RegisterNetworkVideoRequest(this);
++  }
++
+   HTMLElement::InsertedInto(insertion_point);
+   Element* parent = parentElement();
+   if (auto* media = ToHTMLMediaElementOrNull(parent))
+diff --git a/third_party/blink/renderer/core/html/media/html_media_element.cc b/third_party/blink/renderer/core/html/media/html_media_element.cc
+index 7695643..3e7be9d 100644
+--- a/third_party/blink/renderer/core/html/media/html_media_element.cc
++++ b/third_party/blink/renderer/core/html/media/html_media_element.cc
+@@ -24,6 +24,9 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++#include "third_party/blink/renderer/core/editing/serializers/serialization.h"
++
+ #include "third_party/blink/renderer/core/html/media/html_media_element.h"
+ 
+ #include <algorithm>
+@@ -614,6 +617,10 @@ void HTMLMediaElement::ParseAttribute(
+     const AttributeModificationParams& params) {
+   const QualifiedName& name = params.name;
+   if (name == srcAttr) {
++    // @adgraph
++    if (this->tagName() == "video" || this->tagName() == "VIDEO") {
++      this->GetDocument().adgraph_timeline.RegisterNetworkVideoRequest(this);
++    }
+     BLINK_MEDIA_LOG << "parseAttribute(" << (void*)this
+                     << ", srcAttr, old=" << params.old_value
+                     << ", new=" << params.new_value << ")";
+@@ -1108,6 +1115,7 @@ void HTMLMediaElement::LoadSourceFromAttribute() {
+   }
+ 
+   KURL media_url = GetDocument().CompleteURL(src_value);
++
+   if (!IsSafeToLoadURL(media_url, kComplain)) {
+     MediaLoadingFailed(
+         WebMediaPlayer::kNetworkStateFormatError,
+diff --git a/third_party/blink/renderer/core/html/parser/html_construction_site.cc b/third_party/blink/renderer/core/html/parser/html_construction_site.cc
+index 1af53c1..1de6dce 100644
+--- a/third_party/blink/renderer/core/html/parser/html_construction_site.cc
++++ b/third_party/blink/renderer/core/html/parser/html_construction_site.cc
+@@ -24,6 +24,9 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#include "third_party/blink/renderer/core/editing/serializers/serialization.h"
++#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
++
+ #include "third_party/blink/renderer/core/html/parser/html_construction_site.h"
+ 
+ #include <limits>
+@@ -300,7 +303,6 @@ void HTMLConstructionSite::AttachLater(ContainerNode* parent,
+          !child->IsElementNode() || !ToElement(child)->IsScriptElement());
+   DCHECK(PluginContentIsAllowed(parser_content_policy_) ||
+          !IsHTMLPlugInElement(child));
+-
+   HTMLConstructionSiteTask task(HTMLConstructionSiteTask::kInsert);
+   task.parent = parent;
+   task.child = child;
+@@ -705,6 +707,7 @@ void HTMLConstructionSite::InsertHTMLElement(AtomicHTMLToken* token) {
+ void HTMLConstructionSite::InsertSelfClosingHTMLElementDestroyingToken(
+     AtomicHTMLToken* token) {
+   DCHECK_EQ(token->GetType(), HTMLToken::kStartTag);
++
+   // Normally HTMLElementStack is responsible for calling finishParsingChildren,
+   // but self-closing elements are never in the element stack so the stack
+   // doesn't get a chance to tell them that we're done parsing their children.
+@@ -924,6 +927,13 @@ Element* HTMLConstructionSite::CreateElement(
+       element = CustomElement::CreateUncustomizedOrUndefinedElement(
+           document, tag_name, GetCreateElementFlags(), is);
+     }
++
++    // @adgraph
++    if (tag_name == HTMLNames::imgTag || tag_name == HTMLNames::videoTag) {
++      Node::NodeType node_type = ((Node *) element)->getNodeType();
++      CurrentNode()->GetDocument().adgraph_timeline.RegisterNodeToBeAttachedLater(element, node_type, CurrentNode());
++    }
++
+     // Definition for the created element does not exist here and it cannot be
+     // custom or failed.
+     DCHECK_NE(element->GetCustomElementState(), CustomElementState::kCustom);
+@@ -982,7 +992,6 @@ Element* HTMLConstructionSite::CreateElement(
+     // "8. Append each attribute in the given token to element."
+     SetAttributes(element, token, parser_content_policy_);
+   }
+-
+   return element;
+ }
+ 
+diff --git a/third_party/blink/renderer/core/script/pending_script.cc b/third_party/blink/renderer/core/script/pending_script.cc
+index 96842d7..a798530 100644
+--- a/third_party/blink/renderer/core/script/pending_script.cc
++++ b/third_party/blink/renderer/core/script/pending_script.cc
+@@ -23,6 +23,8 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#include "third_party/blink/renderer/core/html/html_script_element.h"
++
+ #include "third_party/blink/renderer/core/script/pending_script.h"
+ 
+ #include "third_party/blink/public/platform/web_feature.mojom-shared.h"
+@@ -259,9 +261,18 @@ void PendingScript::ExecuteScriptBlockInternal(
+     //
+     // <spec step="5.B.2">Run the module script given by the script's
+     // script.</spec>
++
++    //@adgraph
++    if(static_cast<blink::HTMLScriptElement*>(element)){
++      // We have actual script text here in case of inline scripts and script tag with url if remote script.
++      element_document.adgraph_timeline.RegisterScriptElement(static_cast<blink::HTMLScriptElement*>(element));
++      blink::HTMLScriptElement* temp = static_cast<blink::HTMLScriptElement*>(element);   
++      if (temp->IsInTreeScope()){  
++        element_document.adgraph_timeline.RegisterScriptElement(static_cast<blink::HTMLScriptElement*>(element));      
++      }
++    }
+     script->RunScript(context_document->GetFrame(),
+                       element_document.GetSecurityOrigin());
+-
+     // <spec step="6">Set the script element's node document's currentScript
+     // attribute to old script element.</spec>
+     context_document->PopCurrentScript(current_script);
+diff --git a/third_party/blink/renderer/core/xmlhttprequest/xml_http_request.cc b/third_party/blink/renderer/core/xmlhttprequest/xml_http_request.cc
+index d9f6ad5..5af8844 100644
+--- a/third_party/blink/renderer/core/xmlhttprequest/xml_http_request.cc
++++ b/third_party/blink/renderer/core/xmlhttprequest/xml_http_request.cc
+@@ -269,6 +269,7 @@ XMLHttpRequest* XMLHttpRequest::Create(ScriptState* script_state) {
+                                world.IsolatedWorldSecurityOrigin())
+           : new XMLHttpRequest(context, isolate, false, nullptr);
+   xml_http_request->PauseIfNeeded();
++
+   return xml_http_request;
+ }
+ 
+@@ -653,6 +654,12 @@ void XMLHttpRequest::open(const AtomicString& method,
+                           const KURL& url,
+                           bool async,
+                           ExceptionState& exception_state) {
++
++  // @adgraph
++  if (GetExecutionContext()->IsDocument()) {
++    GetDocument()->adgraph_timeline.RegisterXMLHttpRequest(url.GetString().Utf8().data());
++  }
++
+   NETWORK_DVLOG(1) << this << " open(" << method << ", " << url.ElidedString()
+                    << ", " << async << ")";
+ 
