@@ -68,7 +68,7 @@ def crawl(url_to_open, driver_path, binary_path, log_extraction_script, page_loa
         driver.quit()
 
 
-driver_path = base_directory + 'PATH_TO_CHROMEDRIVER' 
+driver_path = 'PATH_TO_CHROMEDRIVER' 
 # tested with ChromeDriver version 2.44
 binary_path = 'PATH_TO_BINARY'
 log_extraction_script = "document.createCDATASection('NOTVERYUNIQUESTRING');"
