@@ -1,7 +1,7 @@
 # AdGraph
 AdGraph is a novel graph-based machine learning approach for detecting advertising and tracking resources on the web. It differs from existing approaches by building a graph representation of the HTML structure, network requests, and JavaScript behavior of a webpage, and using this unique representation to train a classifier for identifying advertising and tracking resources. AdGraph's instruments Chromium web browser to capture fine grained details of a webpage rendering that involves interactions among and across all of the three layers of the web stack i.e. HTML, network, and JavaScript.
 
-Since AdGraph captures fine grained details of a webpage rendering its application is not just limited to ad and tracker blocking and can be applied to a variety of other problems, we open source its instrumentation. 
+Since AdGraph captures fine grained details of a webpage rendering its application is not just limited to ad and tracker blocking and can be applied to a variety of other problems, we open source its instrumentation.
 
 *AdGraph is tested on Ubuntu 16.04 (64-bit) and MacOS Mojave 10.14, but it should be compatible with other major Linux/MacOS distros and versions. Feel free to contact [Umar Iqbal](https://www.umariqbal.com) if you run into any problem running or building AdGraph.*
 
