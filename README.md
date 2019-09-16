@@ -76,7 +76,7 @@ Binaries are located in the **`release`** folder. Please follow the steps below 
 # MacOS 
 ./Chromium.app/Contents/MacOS/Chromium --no-sandbox
 ```
-2. To extract fine grained rendering details, create a `CDATASection` element with text `NOTVERYUNIQUESTRING`. Execute the following script in Chromium's dev tools. The resultant rendering stream will be stored in `{HOME_DIRECTORY}/rendering_stream` directory.
+2. To extract fine grained rendering details, create a `CDATASection` element with text `NOTVERYUNIQUESTRING`. Execute the following script in Chromium's dev tools console. The resultant rendering stream will be stored in `{HOME_DIRECTORY}/rendering_stream` directory.
 ```
 document.createCDATASection('NOTVERYUNIQUESTRING');
 ```
@@ -166,4 +166,4 @@ In this work we present AdGraph, a novel graph-based machine learning approach f
 
 We evaluate AdGraph on the Alexa top-10K websites, and find that it is highly accurate, able to replicate the labels of human-generated filter lists with 95.33% accuracy, and can even identify many mistakes in filter lists. We implement AdGraph as a modification to Chromium. AdGraph adds only minor overhead to page loading and execution, and is actually faster than stock Chromium on 42% of websites and AdBlock Plus on 78% of websites. Overall, we conclude that AdGraph is both accurate enough and performant enough for online use, breaking comparable or fewer websites than popular filter list based approaches.
 
-**For more details please check our full paper**
+**For more details please check our [full paper](https://umariqbal.com/papers/adgraph-sp2020.pdf)**
