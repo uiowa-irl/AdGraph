@@ -69,7 +69,7 @@ def crawl(url_to_open, driver_path, binary_path, log_extraction_script, page_loa
 
 
 driver_path = 'PATH_TO_CHROMEDRIVER' 
-# tested with ChromeDriver version 2.44
+# tested with ChromeDriver version 2.42
 binary_path = 'PATH_TO_BINARY'
 log_extraction_script = "document.createCDATASection('NOTVERYUNIQUESTRING');"
 url_to_open = 'https://www.google.com'
