@@ -76,7 +76,7 @@ Binaries are located in the **`release`** folder. Please follow the steps below 
 # MacOS 
 ./Chromium.app/Contents/MacOS/Chromium --no-sandbox
 ```
-2. To extract fine grained rendering details create a `CDATASection` element with text `NOTVERYUNIQUESTRING`  
+2. To extract fine grained rendering details, create a `CDATASection` element with text `NOTVERYUNIQUESTRING`. Execute the following script in Chromium's dev tools. The resultant rendering stream will be stored in `{HOME_DIRECTORY}/rendering_stream` directory.
 ```
 document.createCDATASection('NOTVERYUNIQUESTRING');
 ```
